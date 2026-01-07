@@ -1,4 +1,7 @@
+.vscode/
+
 *WSL*
+
 *.o
 *.ko
 *.mod
@@ -6,3 +9,10 @@
 *.symvers
 *.order
 *.cmd
+
+out/
+keys/
+
+_*
+
+client/client
