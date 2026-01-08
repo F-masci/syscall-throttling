@@ -10,6 +10,7 @@
 #include <linux/err.h>
 #include <linux/moduleparam.h>
 #include <linux/stat.h>
+#include <linux/slab.h>
 
 #include "module.h"
 #include "devs.h"

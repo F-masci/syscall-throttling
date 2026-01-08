@@ -40,8 +40,7 @@ static int monitor_open(struct inode *inode, struct file *file) {
 #define __PRINT_LIST_INT(title, array) \
     do { \
         __SCNPRINTF(title); \
-        int _i; \
-        for (_i = 0; _i < MAX_ITEMS; _i++) { \
+        for (int _i = 0; _i < MAX_ITEMS; _i++) { \
             if ((array)[_i] != 0) { \
                 __SCNPRINTF("  - [%d] %d\n", _i, (array)[_i]); \
             } \
@@ -51,8 +50,7 @@ static int monitor_open(struct inode *inode, struct file *file) {
 #define __PRINT_LIST_STR(title, array) \
     do { \
         __SCNPRINTF(title); \
-        int _i; \
-        for (_i = 0; _i < MAX_ITEMS; _i++) { \
+        for (int _i = 0; _i < MAX_ITEMS; _i++) { \
             if ((array)[_i] != NULL) { \
                 __SCNPRINTF("  - [%d] %s\n", _i, (array)[_i]); \
             } \
