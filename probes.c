@@ -1,6 +1,8 @@
 #include <linux/kprobes.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/string.h>
 
 #include "probes.h"
 #include "module.h"
@@ -23,6 +25,9 @@ static int syscall_handler_pre(struct kprobe *p, struct pt_regs *regs) {
  * @return int 0 on success, negative error code on failure
  */
 int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) {
+
+    char *symbol_name_storage;
+    int ret;
     
     // Allocate memory for kprobe
     struct kprobe *kp = kmalloc(sizeof(struct kprobe) + strlen(syscall_symbol) + 1, GFP_KERNEL);
@@ -32,7 +37,7 @@ int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) 
     }
 
     // Save symbol name after the kprobe struct
-    char *symbol_name_storage = (char *)(kp + 1);
+    symbol_name_storage = (char *)(kp + 1);
     strcpy(symbol_name_storage, syscall_symbol);
     kp->symbol_name = symbol_name_storage;
 
@@ -41,7 +46,7 @@ int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) 
     kp->post_handler = NULL;
 
     // Register the kprobe
-    int ret = register_kprobe(kp);
+    ret = register_kprobe(kp);
     if (ret < 0) {
         pr_err("%s: Failed to register kprobe on %s, error: %d\n", MODULE_NAME, syscall_symbol, ret);
         kfree(kp);
@@ -63,12 +68,14 @@ int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) 
  * @return int 0 on success, negative error code on failure
  */
 int install_syscall_idx_probe(int syscall_idx, struct kprobe **_kp) {
+    const char *syscall_name;
+
     if (syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE) {
         pr_err("%s: Invalid syscall index: %d\n", MODULE_NAME, syscall_idx);
         return -EINVAL;
     }
 
-    const char *syscall_name = syscall_names[syscall_idx];
+    syscall_name = syscall_names[syscall_idx];
     if (!syscall_name) {
         pr_err("%s: Syscall name not found for index: %d\n", MODULE_NAME, syscall_idx);
         return -EINVAL;

@@ -14,6 +14,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential linux-headers-$(uname -r)
 
+      - name: Setup build environment
+        run: make setup
+
       - name: Compile Module
         run: make
           

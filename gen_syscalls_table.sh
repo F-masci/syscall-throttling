@@ -1,7 +1,20 @@
 #!/bin/bash
 
 OUTPUT="syscall_table.h"
-HEADER_FILE="/usr/include/asm/unistd_64.h"
+POSSIBLE_HEADERS=(
+    "/usr/include/asm/unistd_64.h"
+    "/usr/include/x86_64-linux-gnu/asm/unistd_64.h"
+    "/usr/include/asm-generic/unistd.h"
+)
+
+# Find the appropriate syscall header file
+HEADER_FILE=""
+for f in "${POSSIBLE_HEADERS[@]}"; do
+    if [ -f "$f" ]; then
+        HEADER_FILE="$f"
+        break
+    fi
+done
 
 echo "Generating $OUTPUT..."
 
@@ -17,11 +30,13 @@ EOF
 
 if command -v ausyscall &> /dev/null; then
     # Use ausyscall (part of audit) if available
+    echo "Using ausyscall to generate syscall table..."
     echo "// Generated via ausyscall" >> $OUTPUT
     ausyscall --dump | awk 'NR>1 { printf("\t[%s] = \"%s\",\n", $1, $2) }' >> $OUTPUT
 else
     # Fallback to grep parsing
-    echo "// Generated via grep parsing (ausyscall not found)" >> $OUTPUT
+    echo "Using grep parsing to generate syscall table..."
+    echo "// Generated via grep parsing" >> $OUTPUT
     grep -r "__NR_" $HEADER_FILE \
     | awk '{print $2, $3}' | sed 's/__NR_//' \
     | awk '{ printf("\t[%s] = \"%s\",\n", $2, $1) }' >> $OUTPUT
