@@ -6,26 +6,9 @@
 #include "devs.h"
 #include "types.h"
 
-extern sctdev_confs_t sct_confs[MAX_DEVICES];
+extern sct_monitor_t sct_monitor;
 extern bool sct_status;
 extern unsigned long sct_max_invoks;
-
-#define THIS_CONF ((sctdev_confs_t *)file->private_data)
-
-static int monitor_open(struct inode *inode, struct file *file) {
-
-	int minor = iminor(inode);
-	// TODO: Check if can use %MAX_DEVICES instead of this
-    if (minor >= MAX_DEVICES) return -ENODEV;
-
-	// Assign device-specific configuration to file's private data
-	// This allows each device instance to maintain its own state
-	// based on its minor number
-    file->private_data = &sct_confs[minor];
-
-    printk(KERN_INFO "%s: Device opened. Minor: %d\n", MODULE_NAME, minor);
-    return 0;
-}
 
 // Helper macros for report generation
 // Print formatted data into kernel buffer and update length
@@ -59,7 +42,6 @@ static int monitor_open(struct inode *inode, struct file *file) {
 
 static long monitor_read(struct file *file, char __user *buf, size_t count, loff_t *ppos) {
 
-	sctdev_confs_t *dev = THIS_CONF;
     char *kbuf;
     int len = 0;
     int limit = PAGE_SIZE;
@@ -82,16 +64,17 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     __SCNPRINTF("=== SCT DEVICE STATUS ===\n");
     __SCNPRINTF("Status: %s\n", sct_status ? "ENABLED" : "DISABLED");
     __SCNPRINTF("Max Invocations/s: %lu\n", sct_max_invoks);
+    __SCNPRINTF("Total Syscall Invocations: %llu\n", sct_monitor.invoks);
     __SCNPRINTF("-------------------------\n");
 
     // --- PIDs ---
-    __PRINT_LIST_INT("Registered PIDs:\n", dev->pids);
+    __PRINT_LIST_INT("Registered PIDs:\n", sct_monitor.pids);
 
     // --- Syscalls ---
-    __PRINT_LIST_INT("Registered Syscalls:\n", dev->syscalls);
+    __PRINT_LIST_INT("Registered Syscalls:\n", sct_monitor.syscalls);
 
     // --- Programs ---
-    __PRINT_LIST_STR("Registered Programs:\n", dev->prog_names);
+    __PRINT_LIST_STR("Registered Programs:\n", sct_monitor.prog_names);
 
     __SCNPRINTF("=========================\n");
 
@@ -146,8 +129,6 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 })
 static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
-    sctdev_confs_t *dev = THIS_CONF;
-
     int idx;
     int ret = 0;
     char *u_str_tmp;
@@ -159,25 +140,25 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
     switch (cmd) {
         case SCT_IOCTL_ADD_PID:
-            idx = FIND_FREE_INDEX(dev->pids, pid_t);
-            if (copy_from_user(&dev->pids[idx], (pid_t __user *)arg, sizeof(*dev->pids)))
+            idx = FIND_FREE_INDEX(sct_monitor.pids, pid_t);
+            if (copy_from_user(&sct_monitor.pids[idx], (pid_t __user *)arg, sizeof(*sct_monitor.pids)))
 				return -EFAULT;
-            printk(KERN_INFO "%s: Added PID %d to device\n", MODULE_NAME, dev->pids[idx]);
+            printk(KERN_INFO "%s: Added PID %d to device\n", MODULE_NAME, sct_monitor.pids[idx]);
             break;
 
         case SCT_IOCTL_ADD_SYSCALL:
-			idx = FIND_FREE_INDEX(dev->syscalls, scidx_t);
-            if (copy_from_user(&dev->syscalls[idx], (scidx_t __user *)arg, sizeof(scidx_t)))
+			idx = FIND_FREE_INDEX(sct_monitor.syscalls, scidx_t);
+            if (copy_from_user(&sct_monitor.syscalls[idx], (scidx_t __user *)arg, sizeof(scidx_t)))
                 return -EFAULT;
-            printk(KERN_INFO "%s: Added syscall %d\n", MODULE_NAME, dev->syscalls[idx]);
+            printk(KERN_INFO "%s: Added syscall %d\n", MODULE_NAME, sct_monitor.syscalls[idx]);
             break;
 
         case SCT_IOCTL_ADD_PROG:
             u_str_tmp = strndup_user((const char __user *)arg, 128);
             if (IS_ERR(u_str_tmp)) return PTR_ERR(u_str_tmp);
-			
-			idx = FIND_FREE_INDEX(dev->prog_names, char *);
-			dev->prog_names[idx] = u_str_tmp;
+
+			idx = FIND_FREE_INDEX(sct_monitor.prog_names, char *);
+			sct_monitor.prog_names[idx] = u_str_tmp;
 			printk(KERN_INFO "%s: Added prog name %s\n", MODULE_NAME, u_str_tmp);
             break;
 
@@ -191,15 +172,8 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 }
 #undef FIND_FREE_INDEX
 
-static int monitor_release(struct inode *inode, struct file *file) {
-	printk(KERN_INFO "%s: Device closed. Minor: %d\n", MODULE_NAME, iminor(inode));
-	return 0;
-}
-
 const struct file_operations sct_ops = {
     .owner 				= THIS_MODULE,
-    .open 				= monitor_open,
 	.read 				= monitor_read,
 	.unlocked_ioctl 	= monitor_ioctl,
-    .release 			= monitor_release,
 };

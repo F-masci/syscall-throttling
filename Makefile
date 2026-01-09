@@ -10,7 +10,7 @@ MOK_DER  := $(PWD)/keys/MOK.der
 # --- SEZIONE KBUILD ---
 ifneq ($(KERNELRELEASE),)
     obj-m := $(MODULE_NAME).o
-    $(MODULE_NAME)-y := main.o ops.o
+    $(MODULE_NAME)-y := main.o ops.o probes.o
 	ccflags-y := -std=gnu11
 
 # --- SEZIONE USERSPACE ---
@@ -20,53 +20,57 @@ else
     SIGN_FILE := $(KDIR)/scripts/sign-file
 
 all:
-	@echo "Compilazione del modulo in corso..."
+	@echo "Module compilation in progress..."
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
 	@mkdir -p $(OUT_DIR)
 
-	@echo "Spostamento dei file compilati in $(OUT_DIR)..."
+	@echo "Moving compiled files to $(OUT_DIR)..."
 	@mv -f *.ko *.o *.mod.c *.mod modules.order Module.symvers $(OUT_DIR)/ 2>/dev/null || true
 	@mv -f .*.cmd .module-common.o $(OUT_DIR)/ 2>/dev/null || true
 
-	@# Rilevamento automatico WSL e fix BTF
+	@# Automatic WSL detection and BTF fix
 	@if uname -r | grep -q -i "microsoft"; then \
-		echo "Ambiente WSL rilevato: Rimozione sezione .BTF per compatibilità..."; \
+		echo "WSL environment detected: Removing .BTF section for compatibility..."; \
 		objcopy --remove-section=.BTF $(OUT_DIR)/$(MODULE_NAME).ko; \
 	fi
 
-	@echo "Verifica della chiave MOK..."
+	@echo "Checking MOK key..."
 	@if [ -f "$(MOK_PRIV)" ]; then \
-		echo "Firma del modulo in corso..."; \
+		echo "Signing module..."; \
 		$(SIGN_FILE) sha256 $(MOK_PRIV) $(MOK_DER) $(OUT_DIR)/$(MODULE_NAME).ko; \
 	else \
-		echo "ATTENZIONE: Chiave MOK.priv non trovata. Il modulo non è firmato!"; \
+		echo "WARNING: MOK.priv key not found. Module not signed!"; \
 	fi
-	
-	@echo "Build completata. I file sono in: $(OUT_DIR)"
+
+	@echo "Build completed. Files are in: $(OUT_DIR)"
 
 setup:
-	@echo "Impostazione dell'ambiente di build..."
+	@echo "Setting up build environment..."
 	# sudo apt-get update
 	# sudo apt-get install -y build-essential linux-headers-$(shell uname -r) bc flex bison libelf-dev dwarves
 
-	@# Rilevamento automatico WSL e fix BTF
+	@# Automatic WSL detection and BTF fix
 	@if uname -r | grep -q -i "microsoft"; then \
-		echo "Ambiente WSL rilevato: Impostazione link simbolico per build kernel..."; \
+		echo "WSL environment detected: Setting up symlink for kernel build..."; \
 		sudo ln -snf /usr/src/Linux-Kernel-$(shell uname -r) /lib/modules/$(shell uname -r)/build; \
 	fi
 
-	@echo "Ambiente di build pronto."
+	@# Setup of syscall names header
+	@echo "Generating syscall names header..."
+	@./gen_syscalls_table.sh
+	
+	@echo "Build environment ready."
 
 load:
-	@echo "Caricamento del modulo..."
+	@echo "Loading module..."
 	sudo insmod $(OUT_DIR)/$(MODULE_NAME).ko
-	@echo "Modulo caricato."
+	@echo "Module loaded."
 
 unload:
-	@echo "Scaricamento del modulo..."
+	@echo "Unloading module..."
 	sudo rmmod $(MODULE_NAME)
-	@echo "Modulo scaricato."
+	@echo "Module unloaded."
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(OUT_DIR) src=$(PWD) clean

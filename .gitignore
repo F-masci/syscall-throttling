@@ -16,3 +16,4 @@ keys/
 _*
 
 client/client
+syscall_table.h

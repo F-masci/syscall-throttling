@@ -16,6 +16,7 @@
 #include "devs.h"
 #include "ops.h"
 #include "types.h"
+#include "probes.h"
 
 // Module information
 MODULE_LICENSE("GPL");
@@ -39,8 +40,7 @@ MODULE_PARM_DESC(sct_status, "Enable (1) or disable (0) throttling");
 module_param(sct_max_invoks, ulong, 0644);
 MODULE_PARM_DESC(sct_max_invoks, "Maximum allowed system call invocations per second");
 
-// Global confs array
-sctdev_confs_t sct_confs[MAX_DEVICES];
+sct_monitor_t sct_monitor;
 
 /**
  * @brief Initialize the system call throttling module
@@ -83,23 +83,19 @@ static int __init sct_init(void) {
     }
     printk(KERN_INFO "%s: Device node created at /dev/%s\n", MODULE_NAME, DEFAULT_DEVICE_PATH);
 
-    // Init confs for each possible minor
-    for (int i = 0; i < MAX_DEVICES; i++) {
+    // Allocate memory for arrays
+    // FIXME: use linked list instead of static arrays to save memory
+    sct_monitor.pids = kcalloc(MAX_ITEMS, sizeof(pid_t), GFP_KERNEL);
+    sct_monitor.syscalls = kcalloc(MAX_ITEMS, sizeof(scidx_t), GFP_KERNEL);
+    sct_monitor.prog_names = kcalloc(MAX_ITEMS, sizeof(char*), GFP_KERNEL);
 
-        // Allocate memory for arrays
-        // FIXME: use linked list instead of static arrays to save memory
-        sct_confs[i].pids = kcalloc(MAX_ITEMS, sizeof(pid_t), GFP_KERNEL);
-        sct_confs[i].syscalls = kcalloc(MAX_ITEMS, sizeof(scidx_t), GFP_KERNEL);
-        sct_confs[i].prog_names = kcalloc(MAX_ITEMS, sizeof(char*), GFP_KERNEL);
-
-        if (!sct_confs[i].pids || !sct_confs[i].syscalls || !sct_confs[i].prog_names) {
-            // Free previously allocated memory
-            kfree(sct_confs[i].pids);
-            kfree(sct_confs[i].syscalls);
-            kfree(sct_confs[i].prog_names);
-            printk(KERN_ERR "%s: Memory allocation error for device %d\n", MODULE_NAME, i);
-            return -ENOMEM;
-        }
+    if (!sct_monitor.pids || !sct_monitor.syscalls || !sct_monitor.prog_names) {
+        // Free previously allocated memory
+        kfree(sct_monitor.pids);
+        kfree(sct_monitor.syscalls);
+        kfree(sct_monitor.prog_names);
+        printk(KERN_ERR "%s: Memory allocation error\n", MODULE_NAME);
+        return -ENOMEM;
     }
 
     printk(KERN_INFO "%s: Module loaded successfully\n", MODULE_NAME);
@@ -119,12 +115,10 @@ static void __exit sct_exit(void) {
     class_destroy(sct_class);
     unregister_chrdev(sct_major, DEVICE_NAME);
 
-    // Free confs memory
-    for (int i = 0; i < MAX_DEVICES; i++) {
-        kfree(sct_confs[i].pids);
-        kfree(sct_confs[i].syscalls);
-        kfree(sct_confs[i].prog_names);
-    }
+    // Free monitor memory
+    kfree(sct_monitor.pids);
+    kfree(sct_monitor.syscalls);
+    kfree(sct_monitor.prog_names);
 
     printk(KERN_INFO "%s: Module unloaded\n", MODULE_NAME);
 
