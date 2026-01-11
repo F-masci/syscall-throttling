@@ -11,12 +11,6 @@
 
 extern sct_monitor_t sct_monitor;
 
-static int syscall_handler_pre(struct kprobe *p, struct pt_regs *regs) {
-    sct_monitor.invoks++;
-    printk(KERN_INFO "%s: Syscall invoked. Total invocations: %llu\n", MODULE_NAME, sct_monitor.invoks);
-    return 0;
-}
-
 /**
  * @brief Install a kprobe on a syscall by its name
  * 
@@ -30,7 +24,7 @@ int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) 
     int ret;
     
     // Allocate memory for kprobe
-    struct kprobe *kp = kmalloc(sizeof(struct kprobe) + strlen(syscall_symbol) + 1, GFP_KERNEL);
+    struct kprobe *kp = kzalloc(sizeof(struct kprobe) + strlen(syscall_symbol) + strlen("__x64_sys_") + 1, GFP_KERNEL);
     if (!kp) {
         pr_err("%s: Memory allocation failed for kprobe\n", MODULE_NAME);
         return -ENOMEM;
@@ -38,11 +32,12 @@ int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) 
 
     // Save symbol name after the kprobe struct
     symbol_name_storage = (char *)(kp + 1);
-    strcpy(symbol_name_storage, syscall_symbol);
+    strcpy(symbol_name_storage, "__x64_sys_");
+    strcat(symbol_name_storage + strlen("__x64_sys_"), syscall_symbol);
     kp->symbol_name = symbol_name_storage;
 
     // Set the handlers
-    kp->pre_handler = syscall_handler_pre;
+    kp->pre_handler = NULL;
     kp->post_handler = NULL;
 
     // Register the kprobe
@@ -53,7 +48,7 @@ int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) 
         return ret;
     }
 
-    pr_info("%s: Kprobe installed on %s\n", MODULE_NAME, syscall_symbol);
+    pr_info("%s: Kprobe installed on %s\n", MODULE_NAME, symbol_name_storage);
     if (_kp) *_kp = kp;
     else kfree(kp);
 

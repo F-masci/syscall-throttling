@@ -10,7 +10,7 @@ MOK_DER  := $(PWD)/keys/MOK.der
 # --- SEZIONE KBUILD ---
 ifneq ($(KERNELRELEASE),)
     obj-m := $(MODULE_NAME).o
-    $(MODULE_NAME)-y := main.o ops.o probes.o
+    $(MODULE_NAME)-y := main.o ops.o probes.o ftrace.o
 	ccflags-y := -std=gnu11
 
 # --- SEZIONE USERSPACE ---

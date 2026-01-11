@@ -1,4 +1,13 @@
 #define EXPORT_SYMTAB
+
+#ifndef __KERNEL__
+#define __KERNEL__
+#endif
+
+#ifndef MODULE
+#define MODULE
+#endif
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
@@ -17,6 +26,8 @@
 #include "ops.h"
 #include "types.h"
 #include "probes.h"
+#include "ftrace.h"
+#include "syscall_table.h"
 
 // Module information
 MODULE_LICENSE("GPL");
@@ -85,13 +96,13 @@ static int __init sct_init(void) {
 
     // Allocate memory for arrays
     // FIXME: use linked list instead of static arrays to save memory
-    sct_monitor.pids = kcalloc(MAX_ITEMS, sizeof(pid_t), GFP_KERNEL);
+    sct_monitor.uids = kcalloc(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
     sct_monitor.syscalls = kcalloc(MAX_ITEMS, sizeof(scidx_t), GFP_KERNEL);
     sct_monitor.prog_names = kcalloc(MAX_ITEMS, sizeof(char*), GFP_KERNEL);
 
-    if (!sct_monitor.pids || !sct_monitor.syscalls || !sct_monitor.prog_names) {
+    if (!sct_monitor.uids || !sct_monitor.syscalls || !sct_monitor.prog_names) {
         // Free previously allocated memory
-        kfree(sct_monitor.pids);
+        kfree(sct_monitor.uids);
         kfree(sct_monitor.syscalls);
         kfree(sct_monitor.prog_names);
         printk(KERN_ERR "%s: Memory allocation error\n", MODULE_NAME);
@@ -116,7 +127,7 @@ static void __exit sct_exit(void) {
     unregister_chrdev(sct_major, DEVICE_NAME);
 
     // Free monitor memory
-    kfree(sct_monitor.pids);
+    kfree(sct_monitor.uids);
     kfree(sct_monitor.syscalls);
     kfree(sct_monitor.prog_names);
 

@@ -67,8 +67,8 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     __SCNPRINTF("Total Syscall Invocations: %llu\n", sct_monitor.invoks);
     __SCNPRINTF("-------------------------\n");
 
-    // --- PIDs ---
-    __PRINT_LIST_INT("Registered PIDs:\n", sct_monitor.pids);
+    // --- UIDs ---
+    __PRINT_LIST_INT("Registered UIDs:\n", sct_monitor.uids);
 
     // --- Syscalls ---
     __PRINT_LIST_INT("Registered Syscalls:\n", sct_monitor.syscalls);
@@ -140,10 +140,10 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
     switch (cmd) {
         case SCT_IOCTL_ADD_PID:
-            idx = FIND_FREE_INDEX(sct_monitor.pids, pid_t);
-            if (copy_from_user(&sct_monitor.pids[idx], (pid_t __user *)arg, sizeof(*sct_monitor.pids)))
+            idx = FIND_FREE_INDEX(sct_monitor.uids, pid_t);
+            if (copy_from_user(&sct_monitor.uids[idx], (pid_t __user *)arg, sizeof(*sct_monitor.uids)))
 				return -EFAULT;
-            printk(KERN_INFO "%s: Added PID %d to device\n", MODULE_NAME, sct_monitor.pids[idx]);
+            printk(KERN_INFO "%s: Added PID %d to device\n", MODULE_NAME, sct_monitor.uids[idx]);
             break;
 
         case SCT_IOCTL_ADD_SYSCALL:
