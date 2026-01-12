@@ -34,5 +34,6 @@ jobs:
 
       - name: Verify Artifacts exist
         run: |
+          ls -l discover/*.ko
           ls -l out/*.ko
           ls -l client/client

@@ -11,13 +11,14 @@
 * 
 * @file usctm.c 
 * @brief This is the main source for the Linux Kernel Module which implements
-* 	 the runtime discovery of the syscall table position and of free entries (those 
-* 	 pointing to sys_ni_syscall) 
-*
+* 	 the runtime discovery of the syscall table position and allows to install
+* 	 hooks on syscalls.
+* 
 * @author Francesco Quaglia
+* @contributor Francesco Masci
 *
 * @date November 22, 2020
-* @updated October 2, 2024
+* @updated January 12, 2026
 */
 
 #define EXPORT_SYMTAB
@@ -75,16 +76,14 @@ int good_area(unsigned long *);
 int validate_page(unsigned long *);
 void syscall_table_finder(void);
 
+unsigned long install_usctd_syscall_hook(int, unsigned long);
+unsigned long uninstall_usctd_syscall_hook(int);
 
-unsigned long *hacked_ni_syscall=NULL;
+EXPORT_SYMBOL(install_usctd_syscall_hook);
+EXPORT_SYMBOL(uninstall_usctd_syscall_hook);
+
+// Pointer to the located syscall table
 unsigned long **hacked_syscall_tbl=NULL;
-
-unsigned long sys_call_table_address = 0x0;
-module_param(sys_call_table_address, ulong, 0660);
-
-unsigned long sys_ni_syscall_address = 0x0;
-module_param(sys_ni_syscall_address, ulong, 0660);
-
 
 int good_area(unsigned long * addr){
 	int i;
@@ -125,10 +124,7 @@ int validate_page(unsigned long *addr){
 			&&   ( addr[FIRST_NI_SYSCALL] == addr[SEVENTH_NI_SYSCALL] )	
 			&&   (good_area(addr))
 		){
-			hacked_ni_syscall = (void*)(addr[FIRST_NI_SYSCALL]);				// save ni_syscall
-			sys_ni_syscall_address = (unsigned long)hacked_ni_syscall;
-			hacked_syscall_tbl = (void*)(addr);				// save syscall_table address
-			sys_call_table_address = (unsigned long) hacked_syscall_tbl;
+			hacked_syscall_tbl = (void*)(addr);
 			return 1;
 		}
 	}
@@ -158,6 +154,7 @@ void syscall_table_finder(void){
 #define INST_LEN 5
 char jump_inst[INST_LEN];
 unsigned long x64_sys_call_addr;
+char original_x64_sys_call_inst[INST_LEN];
 int offset;
 static struct kprobe kp_x64_sys_call = { .symbol_name = "x64_sys_call" };
 
@@ -250,10 +247,9 @@ unsigned long install_usctd_syscall_hook(int syscall_nr, unsigned long wrapper_a
     // Re-enable protections
     end_syscall_table_hack();
 
-    printk(KERN_INFO "%s: hook installed on syscall #%d.\n", MODNAME, syscall_nr);
+    printk(KERN_INFO "%s: hook installed on syscall %d.\n", MODNAME, syscall_nr);
     return original_syscall_addrs[syscall_nr];
 }
-EXPORT_SYMBOL(install_usctd_syscall_hook);
 
 /**
  * @brief Remove a syscall hook
@@ -267,7 +263,7 @@ unsigned long uninstall_usctd_syscall_hook(int syscall_nr) {
 
 	// Basic safety check
     if (!hacked_syscall_tbl || !original_syscall_addrs || !original_syscall_addrs[syscall_nr]) {
-		printk(KERN_ERR "%s: cannot uninstall hook for syscall #%d. Invalid state.\n", MODNAME, syscall_nr);
+		printk(KERN_ERR "%s: cannot uninstall hook for syscall %d. Invalid state.\n", MODNAME, syscall_nr);
 		return (unsigned long) NULL;
 	}
 
@@ -279,10 +275,9 @@ unsigned long uninstall_usctd_syscall_hook(int syscall_nr) {
 
 	original_syscall_addrs[syscall_nr] = (unsigned long) NULL;
     
-    printk(KERN_INFO "%s: hook removed from syscall #%d.\n", MODNAME, syscall_nr);
+    printk(KERN_INFO "%s: hook removed from syscall %d.\n", MODNAME, syscall_nr);
 	return hook_addr;
 }
-EXPORT_SYMBOL(uninstall_usctd_syscall_hook);
 
 int init_module(void) {
 			
@@ -309,6 +304,9 @@ int init_module(void) {
 
 	x64_sys_call_addr = (unsigned long)kp_x64_sys_call.addr;
 	unregister_kprobe(&kp_x64_sys_call);
+
+	//save original instruction
+	memcpy(original_x64_sys_call_inst, (unsigned char *)x64_sys_call_addr, INST_LEN);
 
 	/* JMP opcode */
 	jump_inst[0] = 0xE9;
@@ -344,8 +342,10 @@ void cleanup_module(void) {
 
 	begin_syscall_table_hack();
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-	//restore original x64_sys_call code
-	// memcpy((unsigned char *)x64_sys_call_addr, kp_x64_sys_call.insn, INST_LEN);
+	//restore original x64_sys_call instruction
+	memcpy((unsigned char *)x64_sys_call_addr, original_x64_sys_call_inst, INST_LEN);
+
+	// TODO: unregister hook on x64_sys_call if any
 #endif
 	end_syscall_table_hack();
 	kfree(original_syscall_addrs);
