@@ -27,7 +27,9 @@
 #include "types.h"
 #include "probes.h"
 #include "ftrace.h"
-#include "syscall_table.h"
+#include "discover.h"
+#include "monitor.h"
+#include "_syst.h"
 
 // Module information
 MODULE_LICENSE("GPL");
@@ -42,7 +44,7 @@ static struct class* sct_class = NULL;
 static struct device* sct_device = NULL;
 
 bool sct_status = true;
-unsigned long sct_max_invoks = 1000;
+unsigned long sct_max_invoks = 5;
 
 // Throttling control parameter
 module_param(sct_status, bool, 0644);
@@ -110,6 +112,20 @@ static int __init sct_init(void) {
     }
 
     printk(KERN_INFO "%s: Module loaded successfully\n", MODULE_NAME);
+    
+    // Initialize wait queue
+    init_waitqueue_head(&sct_monitor.wqueue);
+
+    // Initialize ftrace hooks
+    init_syscall_hooks(SYSCALL_TABLE_SIZE);
+    printk(KERN_INFO "%s: Syscall hooks initialized\n", MODULE_NAME);
+
+    // TEST
+    // install_syscall_ftrace_hook(__NR_mkdir);
+    // printk(KERN_INFO "%s: Syscall ftrace hook installed for mkdir\n", MODULE_NAME);
+
+    install_syscall_discover_hook(__NR_mkdir);
+    printk(KERN_INFO "%s: Syscall discover hook installed for mkdir\n", MODULE_NAME);
 
     return 0;
 }
@@ -125,11 +141,17 @@ static void __exit sct_exit(void) {
     device_destroy(sct_class, MKDEV(sct_major, sct_minor));
     class_destroy(sct_class);
     unregister_chrdev(sct_major, DEVICE_NAME);
+    printk(KERN_INFO "%s: Device unregistered successfully\n", MODULE_NAME);
 
     // Free monitor memory
     kfree(sct_monitor.uids);
     kfree(sct_monitor.syscalls);
     kfree(sct_monitor.prog_names);
+    printk(KERN_INFO "%s: Monitor memory freed\n", MODULE_NAME);
+
+    // TEST
+    uninstall_syscall_ftrace_hook(__NR_mkdir);
+    printk(KERN_INFO "%s: Syscall ftrace hook uninstalled for mkdir\n", MODULE_NAME);
 
     printk(KERN_INFO "%s: Module unloaded\n", MODULE_NAME);
 

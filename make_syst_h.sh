@@ -1,6 +1,6 @@
 #!/bin/bash
 
-OUTPUT="syscall_table.h"
+OUTPUT="_syst.h"
 POSSIBLE_HEADERS=(
     "/usr/include/asm/unistd_64.h"
     "/usr/include/x86_64-linux-gnu/asm/unistd_64.h"

@@ -1,6 +1,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/ftrace.h>
+#include <linux/ptrace.h>
 #include <linux/version.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -8,48 +9,32 @@
 #include "ftrace.h"
 #include "probes.h"
 #include "module.h"
+#include "types.h"
+#include "monitor.h"
 
-typedef struct {
-    bool active;
-    unsigned long original_addr;
-} hook_syscall_t;
+extern asmlinkage long syscall_wrapper(struct pt_regs *regs);
+extern hook_syscall_t * syscall_hooks;
 
-static hook_syscall_t * syscall_hooks;
+#ifdef CONFIG_DYNAMIC_FTRACE_WITH_REGS
+    #define FTRACE_REGS_ARG struct ftrace_regs
+#else
+    #define FTRACE_REGS_ARG struct pt_regs
+#endif
 
-void init_syscall_hooks(int num_syscalls) {
-    syscall_hooks = kmalloc_array(num_syscalls, sizeof(hook_syscall_t), GFP_KERNEL);
-    memset(syscall_hooks, 0, num_syscalls * sizeof(hook_syscall_t));
-}
-
-static asmlinkage long syscall_wrapper(struct pt_regs *regs) {
-    
-    // Sum to original_addr the offset of MCOUNT_INSN_SIZE to skip ftrace prologue.
-    // This is necessary to avoid infinite recursion.
-    asmlinkage long (*syscall)(struct pt_regs *) = 
-        (void *)(syscall_hooks[regs->orig_ax].original_addr + MCOUNT_INSN_SIZE);
-
-    printk(KERN_INFO "%s: Syscall %ld invoked\n", MODULE_NAME, regs->orig_ax);
-
-    return syscall(regs);
+static __always_inline void sct_ftrace_set_ip(FTRACE_REGS_ARG *regs, unsigned long ip) {
+#ifdef CONFIG_DYNAMIC_FTRACE_WITH_REGS
+    struct pt_regs *real_regs = (struct pt_regs *)regs;
+    real_regs->ip = ip;
+#else
+    /* Vecchio stile: accesso diretto */
+    regs->ip = ip;
+#endif
 }
 
 // Change instruction pointer to our syscall_wrapper
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
 static void notrace sct_ftrace_handler(unsigned long ip, unsigned long parent_ip, struct ftrace_ops *ops, struct ftrace_regs *regs) {
-    ftrace_regs_set_instruction_pointer(regs, (unsigned long)syscall_wrapper);
+    sct_ftrace_set_ip(regs, (unsigned long)syscall_wrapper);
 }
-#else
-static void notrace sct_ftrace_handler(unsigned long ip, unsigned long parent_ip, struct ftrace_ops *ops, struct pt_regs *regs) {
-    regs->ip = (unsigned long)syscall_wrapper;
-}
-#endif
-
-static struct ftrace_ops sct_ftrace_ops = {
-    .func = sct_ftrace_handler,
-    .flags = FTRACE_OPS_FL_SAVE_REGS | 
-             FTRACE_OPS_FL_RECURSION | 
-             FTRACE_OPS_FL_IPMODIFY,
-};
 
 int install_syscall_ftrace_hook(int syscall_idx) {
     
@@ -63,31 +48,68 @@ int install_syscall_ftrace_hook(int syscall_idx) {
         pr_err("%s: Failed to install kprobe on syscall %d\n", MODULE_NAME, syscall_idx);
         return -EINVAL;
     }
+    hook->kp = kp;
     syscall_addr = (unsigned long)kp->addr;
 
     // Save original syscall address
     hook->original_addr = syscall_addr;
     hook->active = true;
-
+    
     // Configure ftrace operation
-    sct_ftrace_ops.private = (void *)syscall_addr;
+    hook->sct_ftrace_ops.func   = sct_ftrace_handler;
+    hook->sct_ftrace_ops.flags  = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION | FTRACE_OPS_FL_IPMODIFY;
+    hook->sct_ftrace_ops.private = (void *)syscall_addr;
 
     // Register ftrace operation
-    ret = ftrace_set_filter_ip(&sct_ftrace_ops, syscall_addr, 0, 0);
+    ret = ftrace_set_filter_ip(&hook->sct_ftrace_ops, syscall_addr, 0, 0);
     if (ret) {
         pr_err("%s: ftrace_set_filter_ip failed for syscall %d\n", MODULE_NAME, syscall_idx);
         return ret;
     }
 
-    ret = register_ftrace_function(&sct_ftrace_ops);
+    ret = register_ftrace_function(&hook->sct_ftrace_ops);
     if (ret) {
         pr_err("%s: register_ftrace_function failed for syscall %d\n", MODULE_NAME, syscall_idx);
-        ftrace_set_filter_ip(&sct_ftrace_ops, syscall_addr, 1, 0);
+        ftrace_set_filter_ip(&hook->sct_ftrace_ops, syscall_addr, 1, 0);
         return ret;
     }
     pr_info("%s: ftrace hook installed on syscall %d\n", MODULE_NAME, syscall_idx);
 
-    // FIXME: Unregister kprobe if needed
+    return 0;
+}
+
+int uninstall_syscall_ftrace_hook(int syscall_idx) {
+    hook_syscall_t * hook = &syscall_hooks[syscall_idx];
+    int ret;
+
+    if (!hook->active) {
+        pr_warn("%s: No active ftrace hook for syscall %d\n", MODULE_NAME, syscall_idx);
+        return -EINVAL;
+    }
+
+    // Unregister kprobe
+    if (hook->kp) {
+        unregister_kprobe(hook->kp);
+        kfree(hook->kp);
+        hook->kp = NULL;
+        pr_info("%s: kprobe uninstalled from syscall %d\n", MODULE_NAME, syscall_idx);
+    }
+
+    // Unregister ftrace operation
+    ret = unregister_ftrace_function(&hook->sct_ftrace_ops);
+    if (ret) {
+        pr_err("%s: unregister_ftrace_function failed for syscall %d\n", MODULE_NAME, syscall_idx);
+        return ret;
+    }
+
+    ret = ftrace_set_filter_ip(&hook->sct_ftrace_ops, hook->original_addr, 1, 0);
+    if (ret) {
+        pr_err("%s: ftrace_set_filter_ip removal failed for syscall %d\n", MODULE_NAME, syscall_idx);
+        return ret;
+    }
+
+    hook->active = false;
+    pr_info("%s: ftrace hook uninstalled from syscall %d\n", MODULE_NAME, syscall_idx);
 
     return 0;
 }

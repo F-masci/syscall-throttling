@@ -3,6 +3,7 @@
 *WSL*
 
 *.o
+*.o.d
 *.ko
 *.mod
 *.mod.c
@@ -16,4 +17,7 @@ keys/
 _*
 
 client/client
-syscall_table.h
+_syst.h
+
+!discover/lib/*
+discover/lib/.*

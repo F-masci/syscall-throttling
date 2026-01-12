@@ -7,7 +7,7 @@
 #include "probes.h"
 #include "module.h"
 #include "types.h"
-#include "syscall_table.h"
+#include "_syst.h"
 
 extern sct_monitor_t sct_monitor;
 
@@ -20,11 +20,36 @@ extern sct_monitor_t sct_monitor;
  */
 int install_syscall_name_probe(const char *syscall_symbol, struct kprobe **_kp) {
 
+    struct kprobe *kp;
     char *symbol_name_storage;
     int ret;
+
+    // --- Validate input ---
+
+    if(!syscall_symbol) {
+        pr_err("%s: Invalid syscall symbol name\n", MODULE_NAME);
+        return -EINVAL;
+    }
+
+    if(strlen(syscall_symbol) == 0) {
+        pr_err("%s: Empty syscall symbol name\n", MODULE_NAME);
+        return -EINVAL;
+    }
+
+    if(strchr(syscall_symbol, ' ')) {
+        pr_err("%s: Invalid syscall symbol name (contains spaces): %s\n", MODULE_NAME, syscall_symbol);
+        return -EINVAL;
+    }
+
+    if(!_kp) {
+        pr_err("%s: Invalid kprobe pointer\n", MODULE_NAME);
+        return -EINVAL;
+    }
+
+    // --- Install kprobe ---
     
     // Allocate memory for kprobe
-    struct kprobe *kp = kzalloc(sizeof(struct kprobe) + strlen(syscall_symbol) + strlen("__x64_sys_") + 1, GFP_KERNEL);
+    kp = kzalloc(sizeof(struct kprobe) + strlen(syscall_symbol) + strlen("__x64_sys_") + 1, GFP_KERNEL);
     if (!kp) {
         pr_err("%s: Memory allocation failed for kprobe\n", MODULE_NAME);
         return -ENOMEM;
@@ -77,4 +102,23 @@ int install_syscall_idx_probe(int syscall_idx, struct kprobe **_kp) {
     }
 
     return install_syscall_name_probe(syscall_name, _kp);
+}
+
+/**
+ * @brief Uninstall a kprobe
+ * 
+ * @param kp Pointer to the kprobe structure
+ * @return int 0 on success, negative error code on failure
+ */
+int uninstall_syscall_probe(struct kprobe *kp) {
+    if (!kp) {
+        pr_err("%s: Invalid kprobe pointer\n", MODULE_NAME);
+        return -EINVAL;
+    }
+
+    unregister_kprobe(kp);
+    pr_info("%s: Kprobe unregistered from %s\n", MODULE_NAME, kp->symbol_name);
+    kfree(kp);
+
+    return 0;
 }
