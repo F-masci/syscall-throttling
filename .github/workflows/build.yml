@@ -23,9 +23,7 @@ jobs:
           make
 
       - name: Compile main module
-        run: |
-          cd ..
-          make
+        run: make
           
       - name: Compile client
         run: |
