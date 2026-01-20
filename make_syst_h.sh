@@ -48,6 +48,16 @@ cat <<EOF >> $OUTPUT
 
 #define SYSCALL_TABLE_SIZE (sizeof(syscall_names) / sizeof(syscall_names[0]))
 
+/**
+* @brief Get the name of a syscall by its number
+* 
+* @param nr Syscall number
+* @return const char* Name of the syscall, or NULL if out of range
+*/
+#define __get_syscall_name(nr) ( \
+    ((nr) >= 0 && (nr) < SYSCALL_TABLE_SIZE) ? syscall_names[(nr)] : NULL \
+)
+
 EOF
 
 echo "Done! $OUTPUT is ready."

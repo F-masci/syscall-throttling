@@ -20,10 +20,6 @@ typedef int scidx_t;
 
 // Monitor configuration structure
 typedef struct {
-    char ** prog_names;
-    uid_t * uids;
-    scidx_t * syscalls;
-
     wait_queue_head_t wqueue;
     bool unloading;
 

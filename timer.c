@@ -5,17 +5,17 @@
 #include <linux/wait.h>
 #include <linux/jiffies.h>
 
-#include "module.h"
+#include "sct.h"
 #include "timer.h"
 #include "monitor.h"
 #include "types.h"
 #include "stats.h"
 
-#define INTERVAL_MS 10000  // 10 seconds interval
+#define INTERVAL_MS 10000  // => 10 seconds
 
 extern sct_monitor_t sct_monitor;
 
-static struct timer_list sct_timer;
+static struct timer_list timer;
 
 static int reset_monitor_timer(void);
 
@@ -44,9 +44,19 @@ void monitor_timer_callback(struct timer_list *t) {
 
     // Reset the timer for the next interval
     printk(KERN_INFO "%s: Resetting monitor timer for next interval\n", MODULE_NAME);
-    if(reset_monitor_timer() != 0) {
+    if(start_monitor_timer() != 0) {
         printk(KERN_ERR "%s: Failed to reset monitor timer\n", MODULE_NAME);
     }
+}
+
+/**
+ * @brief Initializes the monitor timer
+ * 
+ * @return int 0 on success, negative error code on failure
+ */
+void setup_monitor_timer(void) {
+    timer_setup(&timer, monitor_timer_callback, 0);
+    PR_DEBUG("Monitor timer initialized\n");
 }
 
 /**
@@ -55,11 +65,9 @@ void monitor_timer_callback(struct timer_list *t) {
  * @return int 0 on success, negative error code on failure
  */
 int start_monitor_timer(void) {
-    printk(KERN_INFO "%s: Starting monitor timer\n", MODULE_NAME);
-    // Setup timer
-    timer_setup(&sct_timer, monitor_timer_callback, 0);
-    // First start after 1 second
-    return reset_monitor_timer();
+    PR_DEBUG("Starting monitor timer\n");
+    mod_timer(&timer, jiffies + msecs_to_jiffies(INTERVAL_MS));
+    return 0;
 }
 
 /**
@@ -68,16 +76,7 @@ int start_monitor_timer(void) {
  * @return int 0 on success, negative error code on failure
  */
 int stop_monitor_timer(void) {
-    printk(KERN_INFO "%s: Stopping monitor timer\n", MODULE_NAME);
-    return del_timer_sync(&sct_timer);
-}
-
-/**
- * @brief Sets the monitor timer to expire in 1 second
- * 
- * @return int 0 on success, negative error code on failure
- */
-static int reset_monitor_timer(void) {
-    printk(KERN_INFO "%s: Resetting monitor timer\n", MODULE_NAME);
-    return mod_timer(&sct_timer, jiffies + msecs_to_jiffies(INTERVAL_MS));
+    PR_DEBUG("Stopping monitor timer\n");
+    del_timer_sync(&timer);
+    return 0;
 }

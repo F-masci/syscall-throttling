@@ -1,7 +1,7 @@
 #include <linux/types.h>
 #include <linux/sched.h>
 
-#include "module.h"
+#include "sct.h"
 #include "stats.h"
 #include "types.h"
 

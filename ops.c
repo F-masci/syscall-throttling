@@ -1,12 +1,15 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/fs.h>
+#include <linux/slab.h>
 
 #include "ops.h"
-#include "module.h"
-#include "devs.h"
+#include "sct.h"
+#include "dev.h"
 #include "types.h"
 #include "stats.h"
+#include "filter.h"
+#include "hook.h"
 
 extern sct_monitor_t sct_monitor;
 extern bool sct_status;
@@ -21,38 +24,55 @@ extern unsigned long sct_max_invoks;
 // len: current length of data in buffer
 // limit: maximum size of the buffer
 #define __SCNPRINTF(fmt, ...) (len += scnprintf(kbuf + len, limit - len, fmt, ##__VA_ARGS__))
-
-#define __PRINT_LIST_INT(title, array) \
-    do { \
-        __SCNPRINTF(title); \
-        for (int _i = 0; _i < MAX_ITEMS; _i++) { \
-            if ((array)[_i] != 0) { \
-                __SCNPRINTF("  - [%d] %d\n", _i, (array)[_i]); \
-            } \
-        } \
-    } while(0)
-
-#define __PRINT_LIST_STR(title, array) \
-    do { \
-        __SCNPRINTF(title); \
-        for (int _i = 0; _i < MAX_ITEMS; _i++) { \
-            if ((array)[_i] != NULL) { \
-                __SCNPRINTF("  - [%d] %s\n", _i, (array)[_i]); \
-            } \
-        } \
-    } while(0)
-
 static long monitor_read(struct file *file, char __user *buf, size_t count, loff_t *ppos) {
 
     char *kbuf;
     int len = 0;
     int limit = PAGE_SIZE;
+
     sct_sys_delayed_t *peak_delay = get_peak_delayed_syscall();
+    unsigned int j;
+
+    scidx_t *syscall_list;
+    size_t syscall_count;
+
+    uid_t *uid_list; 
+    size_t uid_count;
+    
+    char **prog_list;
+    size_t prog_count;
 
     // Allocate kernel buffer
 	// Use __get_free_page to allocate a single page
     kbuf = (char *)__get_free_page(GFP_KERNEL);
     if (!kbuf) return -ENOMEM;
+
+    // Allocate temporary syscall list
+    syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
+    if (!syscall_list) {
+        free_page((unsigned long) kbuf);
+        return -ENOMEM;
+    }
+    syscall_count = get_syscall_monitor_vals(syscall_list, SYSCALL_TABLE_SIZE);
+
+    // Allocate temporary UID list
+    uid_list = kmalloc_array(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
+    if (!uid_list) {
+        kfree(syscall_list);
+        free_page((unsigned long) kbuf);
+        return -ENOMEM;
+    }
+    uid_count = get_uid_monitor_vals(uid_list, MAX_ITEMS);
+
+    // Allocate temporary Prog Name list
+    prog_list = kmalloc_array(MAX_ITEMS, sizeof(char *), GFP_KERNEL);
+    if (!prog_list) {
+        kfree(uid_list);
+        kfree(syscall_list);
+        free_page((unsigned long) kbuf);
+        return -ENOMEM;
+    }
+    prog_count = get_prog_monitor_vals(prog_list, MAX_ITEMS);
 
     // FIXME: Locking the device data structure
     // mutex_lock(&dev->lock);
@@ -88,14 +108,23 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     }
     __SCNPRINTF("===========================\n");
 
-    // --- UIDs ---
-    __PRINT_LIST_INT("Registered UIDs:\n", sct_monitor.uids);
-
     // --- Syscalls ---
-    __PRINT_LIST_INT("Registered Syscalls:\n", sct_monitor.syscalls);
+    __SCNPRINTF("Registered Syscalls:\n");
+    for (j = 0; j < syscall_count; j++) {
+        __SCNPRINTF("  - [%d] %u\n", j, syscall_list[j]);
+    }
+
+    // --- UIDs ---
+    __SCNPRINTF("Registered UIDs:\n");
+    for (j = 0; j < uid_count; j++) {
+        __SCNPRINTF("  - [%d] %u\n", j, uid_list[j]);
+    }
 
     // --- Programs ---
-    __PRINT_LIST_STR("Registered Programs:\n", sct_monitor.prog_names);
+    __SCNPRINTF("Registered Programs:\n");
+    for (j = 0; j < prog_count; j++) {
+        __SCNPRINTF("  - [%d] %s\n", j, prog_list[j]);
+    }
 
     __SCNPRINTF("===========================\n");
 
@@ -130,29 +159,20 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // Free kernel buffer
     free_page((unsigned long)kbuf);
 
+    // Free temporary lists
+    kfree(syscall_list);
+    kfree(uid_list);
+
 	// Return the number of bytes read
     return count;
 }
 #undef __SCNPRINTF
-#undef __PRINT_LIST_INT
-#undef __PRINT_LIST_STR
 
-
-#define FIND_FREE_INDEX(array, type) ({ \
-    int _ret = -1; \
-    for (int _i = 0; _i < (MAX_ITEMS); _i++) { \
-        if (((type *)(array))[_i] == 0) { \
-            _ret = _i; \
-            break; \
-        } \
-    } \
-    _ret; \
-})
 static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
-    int idx;
-    int ret = 0;
-    char *u_str_tmp;
+    scidx_t k_syscall_nr;
+    uid_t k_uid;
+    char *k_progname;
 
     // TODO: Implementing locking mechanism
     // mutex_lock(&dev->lock);
@@ -160,38 +180,38 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     // FIXME: Check if there's space in the arrays
 
     switch (cmd) {
-        case SCT_IOCTL_ADD_UID:
-            idx = FIND_FREE_INDEX(sct_monitor.uids, uid_t);
-            if (copy_from_user(&sct_monitor.uids[idx], (uid_t __user *)arg, sizeof(*sct_monitor.uids)))
-				return -EFAULT;
-            printk(KERN_INFO "%s: Added UID %d\n", MODULE_NAME, sct_monitor.uids[idx]);
+        case SCT_IOCTL_ADD_SYSCALL:
+            if (copy_from_user(&k_syscall_nr, (scidx_t __user *)arg, sizeof(k_syscall_nr))) return -EFAULT;
+            add_syscall_monitoring(k_syscall_nr);
+            install_syscall_hook(k_syscall_nr);
+            PR_DEBUG("Added syscall %d\n", k_syscall_nr);
             break;
 
-        case SCT_IOCTL_ADD_SYSCALL:
-			idx = FIND_FREE_INDEX(sct_monitor.syscalls, scidx_t);
-            if (copy_from_user(&sct_monitor.syscalls[idx], (scidx_t __user *)arg, sizeof(scidx_t)))
-                return -EFAULT;
-            printk(KERN_INFO "%s: Added syscall %d\n", MODULE_NAME, sct_monitor.syscalls[idx]);
+        case SCT_IOCTL_ADD_UID:
+            if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
+            add_uid_monitoring(k_uid);
+            PR_DEBUG("Added UID %d\n", k_uid);
             break;
 
         case SCT_IOCTL_ADD_PROG:
-            u_str_tmp = strndup_user((const char __user *)arg, 128);
-            if (IS_ERR(u_str_tmp)) return PTR_ERR(u_str_tmp);
+            k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
+            if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
 
-			idx = FIND_FREE_INDEX(sct_monitor.prog_names, char *);
-			sct_monitor.prog_names[idx] = u_str_tmp;
-			printk(KERN_INFO "%s: Added prog name %s\n", MODULE_NAME, u_str_tmp);
+            add_prog_monitoring(k_progname);
+			PR_DEBUG("Added prog name %s\n", k_progname);
+
+            // Free temporary program name
+            kfree(k_progname);
             break;
 
         default:
-            ret = -ENOTTY; // Comando non valido
+            return -ENOTTY; // Comando non valido
     }
 
 	// TODO: Implementing locking mechanism
     // mutex_unlock(&dev->lock);
     return 0;
 }
-#undef FIND_FREE_INDEX
 
 const struct file_operations sct_ops = {
     .owner 				= THIS_MODULE,

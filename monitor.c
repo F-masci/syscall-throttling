@@ -6,30 +6,39 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 
+#include "sct.h"
 #include "monitor.h"
-#include "probes.h"
-#include "module.h"
 #include "types.h"
 #include "stats.h"
+#include "filter.h"
 
-hook_syscall_t * syscall_hooks;
+extern hook_syscall_t * syscall_hooks;
 
-extern sct_monitor_t sct_monitor;
+sct_monitor_t sct_monitor;
 extern unsigned long sct_max_invoks;
+extern bool sct_status;
+
+void setup_monitor(void) {
+    init_waitqueue_head(&sct_monitor.wqueue);
+    PR_DEBUG("Wait queue initialized\n");
+    sct_monitor.unloading = false;
+    sct_monitor.invoks = 0;
+}
+
+void cleanup_monitor(void) {
+    sct_monitor.unloading = true;
+    PR_DEBUG("Setting unloading flag to true\n");
+    wake_up_interruptible(&sct_monitor.wqueue);
+    PR_DEBUG("Wait queue awakened\n");
+}
 
 #define START_TIMER(__start) do { __start = ktime_get(); } while(0)
 #define END_TIMER(__end, __start, __time) \
     do { \
         (__end) = ktime_get(); \
         __time = ktime_to_ms(ktime_sub((__end), (__start))); \
-        printk(KERN_INFO "%s[%d]: Resuming after %lld ms (%lld s)\n", MODULE_NAME, current->pid, __time, __time / 1000); \
+        PR_DEBUG_PID("Resuming after %lld ms (%lld s)\n", __time, __time / 1000); \
     } while (0)
-
-void init_syscall_hooks(int num_syscalls) {
-    syscall_hooks = kmalloc_array(num_syscalls, sizeof(hook_syscall_t), GFP_KERNEL);
-    memset(syscall_hooks, 0, num_syscalls * sizeof(hook_syscall_t));
-}
-
 asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     
     ktime_t start, end;
@@ -43,17 +52,34 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     // This is necessary to avoid infinite recursion.
     asmlinkage long (*syscall)(struct pt_regs *) = (void *)(syscall_hooks[regs->orig_ax].original_addr + MCOUNT_INSN_SIZE);
 
-    printk(KERN_INFO "%s[%d]: Syscall %ld invoked\n", MODULE_NAME, current->pid, regs->orig_ax);
-    printk(KERN_INFO "%s[%d]: -> thread pid: %d\n", MODULE_NAME, current->pid, current->pid);
-    printk(KERN_INFO "%s[%d]: -> uid: %d\n", MODULE_NAME, current->pid, current_uid().val);
-    printk(KERN_INFO "%s[%d]: -> comm: %s\n", MODULE_NAME, current->pid, current->comm);
+    PR_DEBUG_PID("Syscall %ld invoked\n", regs->orig_ax);
+    PR_DEBUG_PID("-> thread pid: %d\n", current->pid);
+    PR_DEBUG_PID("-> uid: %d\n", current_uid().val);
+    PR_DEBUG_PID("-> comm: %s\n", current->comm);
 
-    printk(KERN_INFO "%s[%d]: -> total invocations: %llu\n", MODULE_NAME, current->pid, sct_monitor.invoks);
+    PR_DEBUG_PID("-> total invocations: %llu\n", sct_monitor.invoks);
     
-    if(current_uid().val != 1000) {
-        printk(KERN_INFO "%s[%d]: Syscall %ld not called by user, skipping throttling\n", MODULE_NAME, current->pid, regs->orig_ax);
-        goto run_orig_syscall;
+    // Check if throttling is enabled
+    // Could be removed because we hook only when enabled
+    if(!sct_status) {
+        PR_WARN_PID("Throttling disabled, running syscall\n");
+        goto run_syscall;
     }
+
+    // Check if had to be monitored
+    // Could be removed because we use separate wrappers per syscall
+    if(!is_syscall_monitored(regs->orig_ax)) {
+        PR_WARN_PID("Syscall %ld not monitored\n", regs->orig_ax);
+        goto run_syscall;
+    }
+
+    // Check if current UID and program is monitored
+    if(!is_uid_monitored(current_uid().val) && !is_prog_monitored(current->comm)) {
+        PR_DEBUG_PID("UID %d and program %s not monitored\n", current_uid().val, current->comm);
+        goto run_syscall;
+    }
+
+    PR_DEBUG_PID("Throttling check for syscall %ld\n", regs->orig_ax);
 
     increment_curw_invoked();
     START_TIMER(start);
@@ -62,7 +88,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     while (1) {
         // Try to acquire a slot
         current_val = __sync_add_and_fetch(&sct_monitor.invoks, 1);
-        printk(KERN_INFO "%s[%d]: Slot acquired: %llu\n", MODULE_NAME, current->pid, current_val);
+        PR_DEBUG_PID("Slot acquired: %llu\n", current_val);
 
         // Check if we are within the limit
         if (current_val <= sct_max_invoks)
@@ -75,25 +101,25 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
             inc_blocked = true;
         }
 
-        printk(KERN_INFO "%s[%d]: Limit reached (%llu >= %lu), sleeping...\n", MODULE_NAME, current->pid, current_val, sct_max_invoks);
+        PR_DEBUG_PID("Limit reached (%llu >= %lu), sleeping...\n", current_val, sct_max_invoks);
 
         // Decrement the counter as we failed to acquire a slot and will wait.
         __sync_fetch_and_sub(&sct_monitor.invoks, 1);
         ret = wait_event_interruptible(sct_monitor.wqueue, sct_monitor.invoks < sct_max_invoks || sct_monitor.unloading);
         
         if (ret != 0) {
-            printk(KERN_INFO "%s[%d]: Interrupted by signal\n", MODULE_NAME, current->pid);
+            PR_DEBUG_PID("Interrupted by signal\n");
             END_TIMER(end, start, delay_ms);
             return -EINTR;
         }
         
         // If we reach here, we will try to increment again.
-        printk(KERN_INFO "%s[%d]: Woke up, retrying to acquire slot...\n", MODULE_NAME, current->pid);
+        PR_DEBUG_PID("Woke up, retrying to acquire slot...\n");
 
         if(sct_monitor.unloading) {
-            printk(KERN_INFO "%s[%d]: Module unloading, exiting wait loop\n", MODULE_NAME, current->pid);
+            PR_INFO_PID("Module unloading, running syscall\n");
             END_TIMER(end, start, delay_ms);
-            goto run_orig_syscall;
+            goto run_syscall;
         }
 
     }
@@ -101,11 +127,11 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 allow_syscall:
 
     // We have acquired a slot
-    printk(KERN_INFO "%s[%d]: Syscall %ld allowed (slot %llu)\n", MODULE_NAME, current->pid, regs->orig_ax, current_val);
+    PR_DEBUG_PID("Syscall %ld allowed (slot %llu)\n", regs->orig_ax, current_val);
     
     END_TIMER(end, start, delay_ms);
     update_peak_delay(delay_ms, current_uid().val, current->pid, current->comm, regs->orig_ax);
 
-run_orig_syscall:
+run_syscall:
     return syscall(regs);
 }

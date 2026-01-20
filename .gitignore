@@ -19,5 +19,5 @@ _*
 client/client
 _syst.h
 
-!discover/lib/*
-discover/lib/.*
+!hook/discover/lib/*
+hook/discover/lib/.*

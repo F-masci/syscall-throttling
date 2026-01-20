@@ -1,0 +1,29 @@
+#pragma once
+
+#include <linux/printk.h>
+
+#include "types.h"
+
+#ifndef __KERNEL__
+#define __KERNEL__
+#endif
+
+#ifndef MODULE
+#define MODULE
+#endif
+
+#define MODULE_NAME "SCT"
+
+#define PR_DEBUG(fmt, ...) pr_debug("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
+#define PR_DEBUG_PID(fmt, ...) PR_DEBUG("[%d] " fmt, current->pid, ##__VA_ARGS__)
+
+#define PR_INFO(fmt, ...) pr_info("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
+#define PR_INFO_PID(fmt, ...) PR_INFO("[%d] " fmt, current->pid, ##__VA_ARGS__)
+
+#define PR_WARN(fmt, ...) pr_warn("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
+#define PR_WARN_PID(fmt, ...) PR_WARN("[%d] " fmt, current->pid, ##__VA_ARGS__)
+
+#define PR_ERROR(fmt, ...) pr_err("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
+#define PR_ERROR_PID(fmt, ...) PR_ERROR("[%d] " fmt, current->pid, ##__VA_ARGS__)
+
+#define MAX_ITEMS 1024

@@ -1,20 +1,28 @@
 MODULE_NAME := sct
-OUT_DIR := $(PWD)/out
+OUT_DIR 	:= $(PWD)/out
 
-DISCOVER_MODULE := the_usctm
-DISCOVER_DIR := $(PWD)/discover
+HDISC_DIR 	:= hook/discover
+HFTRACE_DIR := hook/ftrace
+
+# DBG_FLAGS := dyndbg=+p
+DBG_FLAGS :=
 
 KDIR := /lib/modules/$(shell uname -r)/build
 
-SIGN_FILE := $(KDIR)/scripts/sign-file
-MOK_PRIV := $(PWD)/keys/MOK.priv
-MOK_DER  := $(PWD)/keys/MOK.der
+SIGN_FILE 	:= $(KDIR)/scripts/sign-file
+MOK_PRIV 	:= $(PWD)/keys/MOK.priv
+MOK_DER  	:= $(PWD)/keys/MOK.der
 
 # --- SEZIONE KBUILD ---
 ifneq ($(KERNELRELEASE),)
     obj-m := $(MODULE_NAME).o
-    $(MODULE_NAME)-y := main.o ops.o probes.o ftrace.o monitor.o discover.o timer.o stats.o
-	ccflags-y := -std=gnu11
+    $(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o \
+                        $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o \
+						$(HFTRACE_DIR)/fhook.o
+	ccflags-y := -std=gnu11 -DDEBUG \
+					-I$(src)/$(HDISC_DIR) \
+					-I$(src)/$(HDISC_DIR)/lib \
+					-I$(src)/$(HFTRACE_DIR)
 
 # --- SEZIONE USERSPACE ---
 else
@@ -24,16 +32,8 @@ else
 
 all:
 
-	@echo "=== Check Dependency Symbols ==="
-	@if [ ! -f "$(DISCOVER_DIR)/Module.symvers" ]; then \
-		echo "ERROR: $(DISCOVER_DIR)/Module.symvers not found."; \
-		echo "You must manually compile the module inside 'discover/' before compiling this one!"; \
-		exit 1; \
-	fi
-	@echo "Dependency symbols found."
-
 	@echo "=== Compile main module: $(MODULE_NAME) ==="
-	$(MAKE) -C $(KDIR) M=$(PWD) KBUILD_EXTRA_SYMBOLS=$(DISCOVER_DIR)/Module.symvers modules
+	$(MAKE) -C $(KDIR) M=$(PWD)
 
 	@mkdir -p $(OUT_DIR)
 
@@ -41,8 +41,8 @@ all:
 	@mv -f *.ko *.o *.mod.c *.mod modules.order Module.symvers $(OUT_DIR)/ 2>/dev/null || true
 	@mv -f .*.cmd .module-common.o $(OUT_DIR)/ 2>/dev/null || true
 
-	@mv -f $(DISCOVER_DIR)/*.ko $(OUT_DIR)/ 2>/dev/null || true
-	@mv -f $(DISCOVER_DIR)/Module.symvers $(OUT_DIR)/$(DISCOVER_NAME)_Module.symvers 2>/dev/null || true
+	@rm -f $(HDISC_DIR)/*.o $(HDISC_DIR)/.*.cmd
+	@rm -f $(HFTRACE_DIR)/*.o $(HFTRACE_DIR)/.*.cmd
 
 	@# Automatic WSL detection and BTF fix
 	@if uname -r | grep -q -i "microsoft"; then \
@@ -79,7 +79,7 @@ setup:
 
 load:
 	@echo "=== Loading main module: $(MODULE_NAME) ==="
-	sudo insmod $(OUT_DIR)/$(MODULE_NAME).ko
+	sudo insmod $(OUT_DIR)/$(MODULE_NAME).ko $(DBG_FLAGS)
 
 	@echo "Modules loaded successfully."
 
@@ -99,5 +99,9 @@ clean:
 	$(MAKE) -C $(KDIR) M=$(OUT_DIR) src=$(PWD) clean
     
 	rm -rf $(OUT_DIR)
+	rm -f $(HDISC_DIR)/*.o $(HDISC_DIR)/.*.cmd
+	rm -f $(HFTRACE_DIR)/*.o $(HFTRACE_DIR)/.*.cmd
+
+	@echo "Clean completed."
 
 endif
