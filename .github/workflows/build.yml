@@ -17,11 +17,6 @@ jobs:
       - name: Setup build environment
         run: make setup
 
-      - name: Compile dependency module
-        run: |
-          cd discover
-          make
-
       - name: Compile main module
         run: make
           
@@ -32,6 +27,5 @@ jobs:
 
       - name: Verify Artifacts exist
         run: |
-          ls -l discover/*.ko
           ls -l out/*.ko
           ls -l client/client
