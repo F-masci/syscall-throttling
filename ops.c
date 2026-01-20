@@ -1,10 +1,12 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/fs.h>
+
 #include "ops.h"
 #include "module.h"
 #include "devs.h"
 #include "types.h"
+#include "stats.h"
 
 extern sct_monitor_t sct_monitor;
 extern bool sct_status;
@@ -45,6 +47,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     char *kbuf;
     int len = 0;
     int limit = PAGE_SIZE;
+    sct_sys_delayed_t *peak_delay = get_peak_delayed_syscall();
 
     // Allocate kernel buffer
 	// Use __get_free_page to allocate a single page
@@ -61,11 +64,29 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 	// FIXME: Buffer overflow check
 
     // --- General Status ---
-    __SCNPRINTF("=== SCT DEVICE STATUS ===\n");
+    __SCNPRINTF("==== SCT DEVICE STATUS ====\n");
     __SCNPRINTF("Status: %s\n", sct_status ? "ENABLED" : "DISABLED");
     __SCNPRINTF("Max Invocations/s: %lu\n", sct_max_invoks);
     __SCNPRINTF("Total Syscall Invocations: %llu\n", sct_monitor.invoks);
-    __SCNPRINTF("-------------------------\n");
+
+    // --- Throttling Stats ---
+    __SCNPRINTF("===== THROTTLING INFO =====\n");
+    __SCNPRINTF("Peak Invoked Threads: %llu\n", get_peakw_invoked());
+    __SCNPRINTF("Peak Blocked Threads: %llu\n", get_peakw_blocked());
+    __SCNPRINTF("Avg Invoked Threads: %llu\n", get_avgw_invoked());
+    __SCNPRINTF("Avg Blocked Threads: %llu\n", get_avgw_blocked());
+    
+    if (peak_delay->syscall > -1) {
+        __SCNPRINTF("===== PEAK DELAY INFO =====\n");
+        __SCNPRINTF("Delay: %lld ms\n", peak_delay->timestamp_ns); // timestamp_ns usato come ms nel tuo codice
+        __SCNPRINTF("Syscall: %d\n", peak_delay->syscall);
+        __SCNPRINTF("Program: %s\n", peak_delay->prog_name);
+        __SCNPRINTF("PID: %d, UID: %d\n", peak_delay->pid, peak_delay->uid);
+    } else {
+        __SCNPRINTF("===== PEAK DELAY INFO =====\n");
+        __SCNPRINTF("No delayed syscalls recorded yet.\n");
+    }
+    __SCNPRINTF("===========================\n");
 
     // --- UIDs ---
     __PRINT_LIST_INT("Registered UIDs:\n", sct_monitor.uids);
@@ -76,7 +97,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // --- Programs ---
     __PRINT_LIST_STR("Registered Programs:\n", sct_monitor.prog_names);
 
-    __SCNPRINTF("=========================\n");
+    __SCNPRINTF("===========================\n");
 
 	// ---------------------------
     // ---- END GENERATION ----
@@ -139,11 +160,11 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     // FIXME: Check if there's space in the arrays
 
     switch (cmd) {
-        case SCT_IOCTL_ADD_PID:
-            idx = FIND_FREE_INDEX(sct_monitor.uids, pid_t);
-            if (copy_from_user(&sct_monitor.uids[idx], (pid_t __user *)arg, sizeof(*sct_monitor.uids)))
+        case SCT_IOCTL_ADD_UID:
+            idx = FIND_FREE_INDEX(sct_monitor.uids, uid_t);
+            if (copy_from_user(&sct_monitor.uids[idx], (uid_t __user *)arg, sizeof(*sct_monitor.uids)))
 				return -EFAULT;
-            printk(KERN_INFO "%s: Added PID %d to device\n", MODULE_NAME, sct_monitor.uids[idx]);
+            printk(KERN_INFO "%s: Added UID %d\n", MODULE_NAME, sct_monitor.uids[idx]);
             break;
 
         case SCT_IOCTL_ADD_SYSCALL:

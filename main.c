@@ -29,6 +29,7 @@
 #include "ftrace.h"
 #include "discover.h"
 #include "monitor.h"
+#include "timer.h"
 #include "_syst.h"
 
 // Module information
@@ -127,6 +128,12 @@ static int __init sct_init(void) {
     install_syscall_discover_hook(__NR_mkdir);
     printk(KERN_INFO "%s: Syscall discover hook installed for mkdir\n", MODULE_NAME);
 
+    // Start monitor timer
+    if(start_monitor_timer() != 0) {
+        printk(KERN_ERR "%s: Failed to start monitor timer\n", MODULE_NAME);
+        return -EINVAL;
+    }
+
     return 0;
 }
 
@@ -150,8 +157,17 @@ static void __exit sct_exit(void) {
     printk(KERN_INFO "%s: Monitor memory freed\n", MODULE_NAME);
 
     // TEST
-    uninstall_syscall_ftrace_hook(__NR_mkdir);
-    printk(KERN_INFO "%s: Syscall ftrace hook uninstalled for mkdir\n", MODULE_NAME);
+    uninstall_syscall_discover_hook(__NR_mkdir);
+    printk(KERN_INFO "%s: Syscall discover hook uninstalled for mkdir\n", MODULE_NAME);
+
+    // Stop monitor timer
+    stop_monitor_timer();
+    printk(KERN_INFO "%s: Monitor timer stopped\n", MODULE_NAME);
+
+    // Empty wait queue
+    sct_monitor.unloading = true;
+    wake_up_interruptible(&sct_monitor.wqueue);
+    printk(KERN_INFO "%s: Wait queue emptied\n", MODULE_NAME);
 
     printk(KERN_INFO "%s: Module unloaded\n", MODULE_NAME);
 

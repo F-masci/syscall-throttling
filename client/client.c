@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
     char *name = (char *)fake_progs[rand() % num_progs];
 
     // Send data
-    ioctl(fd, SCT_IOCTL_ADD_PID, &my_pid);
+    ioctl(fd, SCT_IOCTL_ADD_UID, &my_pid);
     ioctl(fd, SCT_IOCTL_ADD_SYSCALL, &my_syscall);
     ioctl(fd, SCT_IOCTL_ADD_PROG, name);
 
