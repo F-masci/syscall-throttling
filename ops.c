@@ -180,6 +180,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     // FIXME: Check if there's space in the arrays
 
     switch (cmd) {
+        /* --- ADD COMMANDS --- */
         case SCT_IOCTL_ADD_SYSCALL:
             if (copy_from_user(&k_syscall_nr, (scidx_t __user *)arg, sizeof(k_syscall_nr))) return -EFAULT;
             add_syscall_monitoring(k_syscall_nr);
@@ -204,8 +205,33 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             kfree(k_progname);
             break;
 
+        /* --- REMOVE COMMANDS --- */
+        case SCT_IOCTL_DEL_SYSCALL:
+            if (copy_from_user(&k_syscall_nr, (scidx_t __user *)arg, sizeof(k_syscall_nr))) return -EFAULT;
+            uninstall_syscall_hook(k_syscall_nr);
+            remove_syscall_monitoring(k_syscall_nr);
+            PR_DEBUG("Removed syscall %d\n", k_syscall_nr);
+            break;
+
+        case SCT_IOCTL_DEL_UID:
+            if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
+            remove_uid_monitoring(k_uid);
+            PR_DEBUG("Removed UID %d\n", k_uid);
+            break;
+
+        case SCT_IOCTL_DEL_PROG:
+            k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
+            if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
+
+            remove_prog_monitoring(k_progname);
+            PR_DEBUG("Removed prog name %s\n", k_progname);
+
+            // Free temporary program name
+            kfree(k_progname);
+            break;
+
         default:
-            return -ENOTTY; // Comando non valido
+            return -ENOTTY;
     }
 
 	// TODO: Implementing locking mechanism

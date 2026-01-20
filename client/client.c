@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
                     return 1;
             }
             break;
-        /*case ACTION_REMOVE:
+        case ACTION_REMOVE:
             switch (cfg.target_type) {
                 case TARGET_SYSCALL:
                     req = SCT_IOCTL_DEL_SYSCALL;
@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
                     close(fd);
                     return 1;
             }
-            break;*/
+            break;
         default:
             fprintf(stderr, "Not valid action\n");
             close(fd);

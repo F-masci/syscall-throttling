@@ -1,2 +1,4 @@
-sudo ./client add --sys 83
-sudo ./client add --uid 1000
+while [ true ]; do
+    mkdir test1
+    rm -r test1
+done
