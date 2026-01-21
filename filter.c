@@ -5,6 +5,7 @@
  * @brief This file implements the filtering mechanisms for the system call
  *        throttling module. It provides functions to manage monitored system
  *        calls, user IDs, and program names using bitmaps and hash tables.
+ * 
  * @version 1.0
  * @date 2026-01-21
  * 
@@ -18,9 +19,6 @@
 #include <linux/rcupdate.h>
 
 #include "filter.h"
-
-#define UID_HT_SIZE     10
-#define PNAMES_HT_SIZE  16
 
 // ---- INTERNAL DATA STRUCTURES ---- //
 

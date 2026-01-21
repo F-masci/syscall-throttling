@@ -1,12 +1,19 @@
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/fs.h>
+/**
+ * @file dev.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file implements the character device creation and management
+ *        for the syscall throttling module. It sets up the device, class,
+ *        and device node in /dev for user-space interaction.
+ * 
+ * @version 1.0
+ * @date 2026-01-21
+ * 
+ */
+
 #include <linux/cdev.h>
 #include <linux/device.h>
-#include <linux/err.h>
-#include <linux/version.h>
 
-#include "sct.h"
 #include "dev.h"
 #include "ops.h"
 
@@ -35,7 +42,7 @@ int setup_monitor_device(void) {
     PR_INFO("Device registered successfully with major number %d\n", MAJOR(dev));
 
     // Device initialization
-    cdev_init(&cdev, &sct_ops);
+    cdev_init(&cdev, &monitor_operations);
     cdev.owner = THIS_MODULE;
 
     // Device addition

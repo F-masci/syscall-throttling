@@ -20,6 +20,8 @@
 #include <linux/slab.h>
 #include <linux/uidgid.h>
 #include <linux/sched.h>
+#include <linux/version.h>
+#include <linux/err.h>
 
 #include "types.h"
 

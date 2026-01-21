@@ -1,4 +1,18 @@
+/**
+ * @file hook.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file implements the hooking mechanisms for the syscall.
+ *        It sets up hooks for syscalls using either ftrace or discover
+ *        hooking methods based on configuration on compile time.
+ * 
+ * @version 1.0
+ * @date 2026-01-21
+ * 
+ */
+
 #include <linux/syscalls.h>
+#include <linux/nospec.h>
 
 #include "hook.h"
 #include "monitor.h"
@@ -10,7 +24,7 @@
 #include "hook/discover/dhook.h"
 #endif
 
-hook_syscall_t * syscall_hooks;
+static hook_syscall_t * syscall_hooks;
 static size_t syscall_hooks_num = 0;
 
 /**
@@ -23,6 +37,7 @@ int setup_syscall_hooks(size_t num_syscalls) {
 
     int ret;
 
+    // Allocate syscall hooks data structure
     syscall_hooks = kmalloc_array(num_syscalls, sizeof(hook_syscall_t), GFP_KERNEL);
     if(!syscall_hooks) {
         PR_ERROR("Cannot allocate memory for syscall hooks\n");
@@ -31,8 +46,10 @@ int setup_syscall_hooks(size_t num_syscalls) {
     memset(syscall_hooks, 0, num_syscalls * sizeof(hook_syscall_t));
     PR_DEBUG("Syscall hooks data structure allocated\n");
 
+    // Setup hooking method
 #ifdef FTRACE_HOOKING
     PR_INFO("Setting up ftrace hooking mode...\n");
+    // TODO
     // setup_ftrace_hook();
     PR_INFO("Ftrace hooking mode setup completed\n");
 #else
@@ -96,6 +113,7 @@ unsigned long get_original_syscall_address(scidx_t syscall_idx) {
         PR_ERROR("Invalid syscall index %d for getting original address\n", syscall_idx);
         return (unsigned long) NULL;
     }
+    syscall_idx = array_index_nospec(syscall_idx, syscall_hooks_num);
 
     hook = &syscall_hooks[syscall_idx];
     if(!hook->active) {
@@ -116,6 +134,7 @@ int uninstall_syscall_hook(scidx_t syscall_idx) {
 
     hook_syscall_t * hook;
 
+    // Uninstall syscall hook
 #ifdef FTRACE_HOOKING
     int ret;
     // TODO: Uninstall ftrace hook
@@ -135,6 +154,7 @@ int uninstall_syscall_hook(scidx_t syscall_idx) {
     }
 #endif
 
+    // Clear hook data
     hook = &syscall_hooks[syscall_idx];
     hook->active = false;
     hook->original_addr = (unsigned long) NULL;
@@ -148,6 +168,7 @@ int uninstall_syscall_hook(scidx_t syscall_idx) {
  */
 void cleanup_syscall_hooks(void) {
 
+    // Uninstall active hooks
     PR_DEBUG("Checking for active syscall hooks...\n");
     for(size_t i = 0; i < syscall_hooks_num; i++) {
         if(syscall_hooks[i].active) {
@@ -156,9 +177,11 @@ void cleanup_syscall_hooks(void) {
         }
     }
 
+    // Free syscall hooks data structure
     kfree(syscall_hooks);
     PR_DEBUG("Syscall hooks data structure freed\n");
 
+    // Cleanup hooking method
 #ifdef FTRACE_HOOKING
     // cleanup_ftrace_hook();
     PR_DEBUG("Ftrace hooking mode cleaned up\n");

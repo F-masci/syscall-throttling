@@ -4,6 +4,12 @@ OUT_DIR 	:= $(PWD)/out
 HDISC_DIR 	:= hook/discover
 HFTRACE_DIR := hook/ftrace
 
+# Set to enable FTRACE hooking method
+#
+# 1 = Enable FTRACE hooking
+# 0 = Enable DISCOVER hooking
+ENABLE_FTRACE := 0
+
 # DBG_FLAGS := dyndbg=+p
 DBG_FLAGS   :=
 DBG_DEFINE  := -DDEBUG
@@ -18,13 +24,16 @@ MOK_DER  	:= $(PWD)/keys/MOK.der
 # --- SEZIONE KBUILD ---
 ifneq ($(KERNELRELEASE),)
     obj-m := $(MODULE_NAME).o
-    $(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o \
-                        $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o \
-						$(HFTRACE_DIR)/fhook.o
-	ccflags-y := -std=gnu11 $(DBG_DEFINE) \
-					-I$(src)/$(HDISC_DIR) \
-					-I$(src)/$(HDISC_DIR)/lib \
-					-I$(src)/$(HFTRACE_DIR)
+    $(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o
+	ccflags-y := -std=gnu11 $(DBG_DEFINE)
+
+	ifeq ($(ENABLE_FTRACE), 1)
+        $(MODULE_NAME)-y += $(HFTRACE_DIR)/fhook.o
+        ccflags-y 		 += -DFTRACE_HOOKING -I$(src)/$(HFTRACE_DIR)
+	else
+		$(MODULE_NAME)-y += $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o
+		ccflags-y 		 += -I$(src)/$(HDISC_DIR) -I$(src)/$(HDISC_DIR)/lib
+    endif
 
 # --- SEZIONE USERSPACE ---
 else

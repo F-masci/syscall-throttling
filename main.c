@@ -1,3 +1,15 @@
+/**
+ * @file main.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file contains the module initialization and cleanup
+ *        functions for the system call throttling module.
+ * 
+ * @version 1.0
+ * @date 2026-01-21
+ * 
+ */
+
 #include "sct.h"
 #include "monitor.h"
 #include "filter.h"

@@ -6,4 +6,4 @@
 #include "sct.h"
 #include "opsc.h"
 
-extern const struct file_operations sct_ops;
+extern const struct file_operations monitor_operations;

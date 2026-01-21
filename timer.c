@@ -1,3 +1,16 @@
+/**
+ * @file timer.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file implements the monitor timer for the system call
+ *        throttling module. The timer periodically resets the syscall
+ *        invocation count, computes statistics, and wakes up the wait queue.
+ * 
+ * @version 1.0
+ * @date 2026-01-21
+ * 
+ */
+
 #include <linux/timer.h>
 #include <linux/jiffies.h>
 
@@ -20,16 +33,16 @@ void monitor_timer_callback(struct timer_list *t) {
     PR_DEBUG("Monitor timer callback triggered\n");
 
     // Reset invocation count
-    PR_DEBUG("Reset syscall invocation count to 0\n");
     reset_monitor_invoks();
+    PR_DEBUG("Reset syscall invocation count to 0\n");
 
     // Reset statistics for the new interval
-    PR_DEBUG("Computing and resetting statistics for the new window\n");
     compute_stats_blocked();
+    PR_DEBUG("Computed and reset statistics for the new window\n");
 
     // Wake up the wait queue to notify waiting threads
-    PR_DEBUG("Waking up wait queue\n");
     wake_monitor_queue();
+    PR_DEBUG("Woke up monitor wait queue\n");
 
     // Reset the timer for the next window
     PR_DEBUG("Resetting monitor timer for next window\n");

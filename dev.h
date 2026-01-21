@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sct.h"
+
 #define DEVICE_MINOR 0
 #define MAX_DEV_MINORS 1
 

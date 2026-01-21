@@ -2,7 +2,7 @@
 
 #include "sct.h"
 
-#define INTERVAL_MS 10000  // => 10 seconds
+#define INTERVAL_MS 10000  // => 10 seconds to test
 
 void setup_monitor_timer(void);
 int start_monitor_timer(void);

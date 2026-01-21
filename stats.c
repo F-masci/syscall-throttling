@@ -1,9 +1,17 @@
-#include <linux/types.h>
-#include <linux/sched.h>
+/**
+ * @file stats.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file implements the statistics gathering mechanisms for the
+ *        system call throttling module. It tracks peak delayed syscalls,
+ *        and counts of invoked and blocked threads per time window.
+ * 
+ * @version 1.0
+ * @date 2026-01-21
+ * 
+ */
 
-#include "sct.h"
 #include "stats.h"
-#include "types.h"
 
 static DEFINE_SPINLOCK(stats_lock);
 

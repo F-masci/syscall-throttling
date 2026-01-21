@@ -256,7 +256,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     return 0;
 }
 
-const struct file_operations sct_ops = {
+const struct file_operations monitor_operations = {
     .owner 				= THIS_MODULE,
 	.read 				= monitor_read,
 	.unlocked_ioctl 	= monitor_ioctl,
