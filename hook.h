@@ -1,4 +1,10 @@
-int setup_syscall_hooks(int);
-int install_syscall_hook(int);
-int uninstall_syscall_hook(int syscall_idx);
+#pragma once
+
+#include "sct.h"
+
+int setup_syscall_hooks(size_t);
 void cleanup_syscall_hooks(void);
+
+int install_syscall_hook(scidx_t);
+unsigned long get_original_syscall_address(scidx_t);
+int uninstall_syscall_hook(scidx_t);

@@ -4,16 +4,12 @@
 #include <linux/slab.h>
 
 #include "ops.h"
-#include "sct.h"
+#include "monitor.h"
 #include "dev.h"
 #include "types.h"
 #include "stats.h"
 #include "filter.h"
 #include "hook.h"
-
-extern sct_monitor_t sct_monitor;
-extern bool sct_status;
-extern unsigned long sct_max_invoks;
 
 // Helper macros for report generation
 // Print formatted data into kernel buffer and update length
@@ -30,7 +26,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     int len = 0;
     int limit = PAGE_SIZE;
 
-    sct_sys_delayed_t *peak_delay = get_peak_delayed_syscall();
+    sysc_delayed_t peak_delay;
     unsigned int j;
 
     scidx_t *syscall_list;
@@ -42,8 +38,9 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     char **prog_list;
     size_t prog_count;
 
+    get_peak_delayed_syscall(&peak_delay);
+
     // Allocate kernel buffer
-	// Use __get_free_page to allocate a single page
     kbuf = (char *)__get_free_page(GFP_KERNEL);
     if (!kbuf) return -ENOMEM;
 
@@ -81,32 +78,29 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // ---- REPORT GENERATION ----
     // ---------------------------
 
-	// FIXME: Buffer overflow check
-
     // --- General Status ---
-    __SCNPRINTF("==== SCT DEVICE STATUS ====\n");
-    __SCNPRINTF("Status: %s\n", sct_status ? "ENABLED" : "DISABLED");
-    __SCNPRINTF("Max Invocations/s: %lu\n", sct_max_invoks);
-    __SCNPRINTF("Total Syscall Invocations: %llu\n", sct_monitor.invoks);
+    __SCNPRINTF("========= DEVICE STATUS =========\n");
+    __SCNPRINTF("Status: %s\n", get_monitor_status() ? "ENABLED" : "DISABLED");
+    __SCNPRINTF("Max Invocations/s: %llu\n", get_monitor_max_invoks());
+    __SCNPRINTF("Total Syscall Invocations: %llu\n", get_monitor_cur_invoks());
 
     // --- Throttling Stats ---
-    __SCNPRINTF("===== THROTTLING INFO =====\n");
+    __SCNPRINTF("======== THROTTLING INFO ========\n");
     __SCNPRINTF("Peak Invoked Threads: %llu\n", get_peakw_invoked());
     __SCNPRINTF("Peak Blocked Threads: %llu\n", get_peakw_blocked());
     __SCNPRINTF("Avg Invoked Threads: %llu\n", get_avgw_invoked());
     __SCNPRINTF("Avg Blocked Threads: %llu\n", get_avgw_blocked());
     
-    if (peak_delay->syscall > -1) {
-        __SCNPRINTF("===== PEAK DELAY INFO =====\n");
-        __SCNPRINTF("Delay: %lld ms\n", peak_delay->timestamp_ns); // timestamp_ns usato come ms nel tuo codice
-        __SCNPRINTF("Syscall: %d\n", peak_delay->syscall);
-        __SCNPRINTF("Program: %s\n", peak_delay->prog_name);
-        __SCNPRINTF("PID: %d, UID: %d\n", peak_delay->pid, peak_delay->uid);
+    __SCNPRINTF("======== PEAK DELAY INFO ========\n");
+    if (peak_delay.syscall > -1) {
+        __SCNPRINTF("Delay: %lld ms\n", peak_delay.delay_ms);
+        __SCNPRINTF("Syscall: %d\n", peak_delay.syscall);
+        __SCNPRINTF("Program: %s\n", peak_delay.prog_name);
+        __SCNPRINTF("PID: %d, UID: %d\n", peak_delay.pid, peak_delay.uid);
     } else {
-        __SCNPRINTF("===== PEAK DELAY INFO =====\n");
         __SCNPRINTF("No delayed syscalls recorded yet.\n");
     }
-    __SCNPRINTF("===========================\n");
+    __SCNPRINTF("=================================\n");
 
     // --- Syscalls ---
     __SCNPRINTF("Registered Syscalls:\n");
@@ -126,15 +120,11 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
         __SCNPRINTF("  - [%d] %s\n", j, prog_list[j]);
     }
 
-    __SCNPRINTF("===========================\n");
+    __SCNPRINTF("=================================\n");
 
 	// ---------------------------
     // ---- END GENERATION ----
     // ---------------------------
-
-
-    // FIXME: Unlocking the device data structure
-    // mutex_unlock(&dev->lock);
 
     // Copy data to user space
     // If user read all data, return 0 to signal EOF
@@ -162,6 +152,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // Free temporary lists
     kfree(syscall_list);
     kfree(uid_list);
+    kfree(prog_list);
 
 	// Return the number of bytes read
     return count;
@@ -174,68 +165,94 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     uid_t k_uid;
     char *k_progname;
 
-    // TODO: Implementing locking mechanism
-    // mutex_lock(&dev->lock);
+    u64 k_max_invoks;
+    bool k_status;
 
-    // FIXME: Check if there's space in the arrays
+    // Check root permissions
+    // We can also use capable(CAP_SYS_ADMIN) if needed
+    if (current_euid().val != 0) {
+        PR_WARN_PID("Permission denied for non-root user: command %u\n", cmd);
+        return -EPERM;
+    }
 
     switch (cmd) {
+
         /* --- ADD COMMANDS --- */
+
         case SCT_IOCTL_ADD_SYSCALL:
             if (copy_from_user(&k_syscall_nr, (scidx_t __user *)arg, sizeof(k_syscall_nr))) return -EFAULT;
+            PR_DEBUG("Adding syscall %d\n", k_syscall_nr);
             add_syscall_monitoring(k_syscall_nr);
             install_syscall_hook(k_syscall_nr);
-            PR_DEBUG("Added syscall %d\n", k_syscall_nr);
+            PR_INFO("Added syscall %d\n", k_syscall_nr);
             break;
 
         case SCT_IOCTL_ADD_UID:
             if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
+            PR_DEBUG("Adding UID %d\n", k_uid);
             add_uid_monitoring(k_uid);
-            PR_DEBUG("Added UID %d\n", k_uid);
+            PR_INFO("Added UID %d\n", k_uid);
             break;
 
         case SCT_IOCTL_ADD_PROG:
             k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
             if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
-
+            PR_DEBUG("Adding prog name %s\n", k_progname);
             add_prog_monitoring(k_progname);
-			PR_DEBUG("Added prog name %s\n", k_progname);
+			PR_INFO("Added prog name %s\n", k_progname);
 
             // Free temporary program name
             kfree(k_progname);
             break;
 
         /* --- REMOVE COMMANDS --- */
+
         case SCT_IOCTL_DEL_SYSCALL:
             if (copy_from_user(&k_syscall_nr, (scidx_t __user *)arg, sizeof(k_syscall_nr))) return -EFAULT;
+            PR_DEBUG("Removing syscall %d\n", k_syscall_nr);
             uninstall_syscall_hook(k_syscall_nr);
             remove_syscall_monitoring(k_syscall_nr);
-            PR_DEBUG("Removed syscall %d\n", k_syscall_nr);
+            PR_INFO("Removed syscall %d\n", k_syscall_nr);
             break;
 
         case SCT_IOCTL_DEL_UID:
             if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
+            PR_DEBUG("Removing UID %d\n", k_uid);
             remove_uid_monitoring(k_uid);
-            PR_DEBUG("Removed UID %d\n", k_uid);
+            PR_INFO("Removed UID %d\n", k_uid);
             break;
 
         case SCT_IOCTL_DEL_PROG:
             k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
             if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
-
+            PR_DEBUG("Removing prog name %s\n", k_progname);
             remove_prog_monitoring(k_progname);
-            PR_DEBUG("Removed prog name %s\n", k_progname);
+            PR_INFO("Removed prog name %s\n", k_progname);
 
             // Free temporary program name
             kfree(k_progname);
+            break;
+
+        /* --- CONFIGURATION COMMANDS --- */
+
+        case SCT_IOCTL_SET_LIMIT:
+            if (copy_from_user(&k_max_invoks, (u64 __user *)arg, sizeof(k_max_invoks))) return -EFAULT;
+            PR_INFO("Setting new max invocations limit: %llu\n", k_max_invoks);
+            set_monitor_max_invoks(k_max_invoks);
+            break;
+
+        case SCT_IOCTL_SET_STATUS:
+            if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) return -EFAULT;
+            PR_INFO("Setting monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
+            set_monitor_status(k_status != 0);
+            
+            // TODO: Wake up all waiting processes if disabling
             break;
 
         default:
             return -ENOTTY;
     }
 
-	// TODO: Implementing locking mechanism
-    // mutex_unlock(&dev->lock);
     return 0;
 }
 

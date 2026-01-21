@@ -8,12 +8,17 @@
 
 #include <linux/ioctl.h>
 
+#include "types.h"
+
 #define SCT_IOC_MAGIC 'S'
 
 #define SCT_IOCTL_ADD_UID      _IOW(SCT_IOC_MAGIC, 1, uid_t)
-#define SCT_IOCTL_ADD_SYSCALL  _IOW(SCT_IOC_MAGIC, 2, uint64_t)
+#define SCT_IOCTL_ADD_SYSCALL  _IOW(SCT_IOC_MAGIC, 2, u64)
 #define SCT_IOCTL_ADD_PROG     _IOW(SCT_IOC_MAGIC, 3, char *)
 
 #define SCT_IOCTL_DEL_UID      _IOW(SCT_IOC_MAGIC, 4, uid_t)
-#define SCT_IOCTL_DEL_SYSCALL  _IOW(SCT_IOC_MAGIC, 5, uint64_t)
+#define SCT_IOCTL_DEL_SYSCALL  _IOW(SCT_IOC_MAGIC, 5, u64)
 #define SCT_IOCTL_DEL_PROG     _IOW(SCT_IOC_MAGIC, 6, char *)
+
+#define SCT_IOCTL_SET_LIMIT    _IOW(SCT_IOC_MAGIC, 7, u64)
+#define SCT_IOCTL_SET_STATUS   _IOW(SCT_IOC_MAGIC, 8, bool)

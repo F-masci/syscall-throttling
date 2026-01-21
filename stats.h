@@ -2,8 +2,8 @@
 
 #include "types.h"
 
-sct_sys_delayed_t * get_peak_delayed_syscall(void);
-void update_peak_delay(s64, uid_t, pid_t, const char *, scidx_t);
+void get_peak_delayed_syscall(sysc_delayed_t *);
+bool update_peak_delay(s64, uid_t, pid_t, const char *, scidx_t);
 void reset_peak_delay(void);
 
 u64 increment_curw_invoked(void);

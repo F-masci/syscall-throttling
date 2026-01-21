@@ -1,51 +1,40 @@
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/init.h>
 #include <linux/timer.h>
-#include <linux/wait.h>
 #include <linux/jiffies.h>
 
-#include "sct.h"
 #include "timer.h"
 #include "monitor.h"
-#include "types.h"
 #include "stats.h"
-
-#define INTERVAL_MS 10000  // => 10 seconds
-
-extern sct_monitor_t sct_monitor;
 
 static struct timer_list timer;
 
-static int reset_monitor_timer(void);
-
 /**
- * @brief Monitor timer callback function
+ * @brief Monitor timer callback function. Resets invocation count, computes statistics, and wakes up wait queue.
+ * The timer is then restarted for the next interval.
+ * 
+ * The timer is actived by module initialization, so only 1 instance exists.
  * 
  * @param t Pointer to the timer_list structure
  */
 void monitor_timer_callback(struct timer_list *t) {
 
-    printk(KERN_INFO "%s: Monitor timer callback triggered\n", MODULE_NAME);
+    PR_DEBUG("Monitor timer callback triggered\n");
 
     // Reset invocation count
-    printk(KERN_INFO "%s: Reset syscall invocation count to 0\n", MODULE_NAME);
-    __sync_lock_test_and_set(&sct_monitor.invoks, 0);
+    PR_DEBUG("Reset syscall invocation count to 0\n");
+    reset_monitor_invoks();
 
     // Reset statistics for the new interval
-    printk(KERN_INFO "%s: Computing and resetting statistics for the new interval\n", MODULE_NAME);
+    PR_DEBUG("Computing and resetting statistics for the new window\n");
     compute_stats_blocked();
-    printk(KERN_INFO "%s: Peak blocked threads in last interval: %llu\n", MODULE_NAME, get_peakw_blocked());
-    printk(KERN_INFO "%s: Average blocked threads per interval: %llu\n", MODULE_NAME, get_avgw_blocked());
 
-    // Wake up the wait queue to allow more syscalls
-    printk(KERN_INFO "%s: Waking up wait queue\n", MODULE_NAME);
-    wake_up_interruptible(&sct_monitor.wqueue);
+    // Wake up the wait queue to notify waiting threads
+    PR_DEBUG("Waking up wait queue\n");
+    wake_monitor_queue();
 
-    // Reset the timer for the next interval
-    printk(KERN_INFO "%s: Resetting monitor timer for next interval\n", MODULE_NAME);
+    // Reset the timer for the next window
+    PR_DEBUG("Resetting monitor timer for next window\n");
     if(start_monitor_timer() != 0) {
-        printk(KERN_ERR "%s: Failed to reset monitor timer\n", MODULE_NAME);
+        PR_ERROR("Failed to reset monitor timer\n");
     }
 }
 
@@ -55,8 +44,8 @@ void monitor_timer_callback(struct timer_list *t) {
  * @return int 0 on success, negative error code on failure
  */
 void setup_monitor_timer(void) {
+    PR_DEBUG("Monitor timer initializing\n");
     timer_setup(&timer, monitor_timer_callback, 0);
-    PR_DEBUG("Monitor timer initialized\n");
 }
 
 /**
@@ -65,7 +54,7 @@ void setup_monitor_timer(void) {
  * @return int 0 on success, negative error code on failure
  */
 int start_monitor_timer(void) {
-    PR_DEBUG("Starting monitor timer\n");
+    PR_DEBUG("Starting monitor timer with interval %d ms\n", INTERVAL_MS);
     mod_timer(&timer, jiffies + msecs_to_jiffies(INTERVAL_MS));
     return 0;
 }

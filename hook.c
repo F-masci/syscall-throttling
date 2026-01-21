@@ -1,9 +1,6 @@
-#include <linux/module.h>
-#include <linux/kernel.h>
 #include <linux/syscalls.h>
 
 #include "hook.h"
-#include "sct.h"
 #include "monitor.h"
 
 #ifdef FTRACE_HOOKING
@@ -14,7 +11,7 @@
 #endif
 
 hook_syscall_t * syscall_hooks;
-static int syscall_hooks_num = 0;
+static size_t syscall_hooks_num = 0;
 
 /**
  * @brief Setup syscall hooks data structure
@@ -22,7 +19,7 @@ static int syscall_hooks_num = 0;
  * @param num_syscalls Number of syscalls
  * @return int 0 on success, negative error code on failure
  */
-int setup_syscall_hooks(int num_syscalls) {
+int setup_syscall_hooks(size_t num_syscalls) {
 
     int ret;
 
@@ -60,13 +57,14 @@ int setup_syscall_hooks(int num_syscalls) {
  * @param syscall_idx Syscall number to hook
  * @return int 0 on success, negative error code on failure
  */
-int install_syscall_hook(int syscall_idx) {
+int install_syscall_hook(scidx_t syscall_idx) {
     
     unsigned long original_addr;
     hook_syscall_t * hook = &syscall_hooks[syscall_idx];
 
     // Install syscall hook and save original syscall address
 #ifdef FTRACE_HOOKING
+    // TODO: Install ftrace hook
     PR_DEBUG("Installing ftrace hook on syscall %d\n", syscall_idx);
     original_addr = install_syscall_fhook(syscall_idx);
 #else
@@ -85,30 +83,59 @@ int install_syscall_hook(int syscall_idx) {
 }
 
 /**
+ * @brief Get the original syscall address (after hooking)
+ * 
+ * @param syscall_idx Syscall number
+ * @return unsigned long Original syscall address, or NULL on failure
+ */
+unsigned long get_original_syscall_address(scidx_t syscall_idx) {
+
+    hook_syscall_t * hook;
+
+    if(syscall_idx < 0 || syscall_idx >= syscall_hooks_num) {
+        PR_ERROR("Invalid syscall index %d for getting original address\n", syscall_idx);
+        return (unsigned long) NULL;
+    }
+
+    hook = &syscall_hooks[syscall_idx];
+    if(!hook->active) {
+        PR_ERROR("Syscall %d is not hooked, cannot get original address\n", syscall_idx);
+        return (unsigned long) NULL;
+    }
+
+    return hook->original_addr;
+}
+
+/**
  * @brief Uninstall a syscall hook
  * 
  * @param syscall_idx Syscall number to unhook
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_syscall_hook(int syscall_idx) {
+int uninstall_syscall_hook(scidx_t syscall_idx) {
+
+    hook_syscall_t * hook;
 
 #ifdef FTRACE_HOOKING
+    int ret;
+    // TODO: Uninstall ftrace hook
     PR_DEBUG("Uninstalling ftrace hook on syscall %d\n", syscall_idx);
-    int ret = uninstall_syscall_fhook(syscall_idx);
+    ret = uninstall_syscall_fhook(syscall_idx);
     if(ret < 0) {
         PR_ERROR("Failed to uninstall ftrace hook on syscall %d\n", syscall_idx);
         return ret;
     }
 #else
+    unsigned long ret;
     PR_DEBUG("Uninstalling discover hook on syscall %d\n", syscall_idx);
-    unsigned long ret = uninstall_syscall_dhook(syscall_idx);
+    ret = uninstall_syscall_dhook(syscall_idx);
     if(ret == (unsigned long)NULL) {
         PR_ERROR("Failed to uninstall discover hook on syscall %d\n", syscall_idx);
         return -EINVAL;
     }
 #endif
 
-    hook_syscall_t * hook = &syscall_hooks[syscall_idx];
+    hook = &syscall_hooks[syscall_idx];
     hook->active = false;
     hook->original_addr = (unsigned long) NULL;
 
@@ -121,10 +148,11 @@ int uninstall_syscall_hook(int syscall_idx) {
  */
 void cleanup_syscall_hooks(void) {
 
-    for(int i = 0; i < syscall_hooks_num; i++) {
+    PR_DEBUG("Checking for active syscall hooks...\n");
+    for(size_t i = 0; i < syscall_hooks_num; i++) {
         if(syscall_hooks[i].active) {
-            PR_DEBUG("Uninstalling active hook on syscall %d during cleanup\n", i);
-            uninstall_syscall_hook(i);
+            PR_DEBUG("Uninstalling active hook on syscall %zu during cleanup\n", i);
+            uninstall_syscall_hook((scidx_t) i);
         }
     }
 

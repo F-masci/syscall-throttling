@@ -1,8 +1,6 @@
 #pragma once
 
-#include <linux/printk.h>
-
-#include "types.h"
+#define EXPORT_SYMTAB
 
 #ifndef __KERNEL__
 #define __KERNEL__
@@ -11,6 +9,19 @@
 #ifndef MODULE
 #define MODULE
 #endif
+
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/printk.h>
+#include <linux/atomic.h>
+#include <linux/compiler.h>
+#include <linux/slab.h>
+#include <linux/uidgid.h>
+#include <linux/sched.h>
+
+#include "types.h"
 
 #define MODULE_NAME "SCT"
 

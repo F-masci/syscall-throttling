@@ -5,7 +5,9 @@ HDISC_DIR 	:= hook/discover
 HFTRACE_DIR := hook/ftrace
 
 # DBG_FLAGS := dyndbg=+p
-DBG_FLAGS :=
+DBG_FLAGS   :=
+DBG_DEFINE  := -DDEBUG
+# DBG_DEFINE  :=
 
 KDIR := /lib/modules/$(shell uname -r)/build
 
@@ -19,7 +21,7 @@ ifneq ($(KERNELRELEASE),)
     $(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o \
                         $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o \
 						$(HFTRACE_DIR)/fhook.o
-	ccflags-y := -std=gnu11 -DDEBUG \
+	ccflags-y := -std=gnu11 $(DBG_DEFINE) \
 					-I$(src)/$(HDISC_DIR) \
 					-I$(src)/$(HDISC_DIR)/lib \
 					-I$(src)/$(HFTRACE_DIR)
