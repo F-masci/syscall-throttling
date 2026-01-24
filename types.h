@@ -13,7 +13,7 @@ typedef int scidx_t;
         unsigned long original_addr;
         // ftrace mode
         struct kprobe *kp;
-        struct ftrace_ops sct_ftrace_ops;
+        struct ftrace_ops fops;
         // discover mode - no additional fields needed
     } hook_syscall_t;
     
@@ -24,6 +24,15 @@ typedef int scidx_t;
         uid_t uid;
         s64 delay_ms;
     } sysc_delayed_t;
+
+    // For historical statistics
+    // To compute average blocked threads per window:
+    //   avg_blocked_threads = sum_blocked_threads / total_windows_count
+    typedef struct {
+        u64 max_blocked_threads;           // Peak number of blocked threads observed in a single time window
+        u64 sum_blocked_threads;           // Total sum of blocked threads in all windows (for the average)
+        u64 total_windows_count;           // Number of windows considered
+    } wstats_t;
 
 #else
     #include <stdint.h>

@@ -10,6 +10,7 @@
 #include "stats.h"
 #include "filter.h"
 #include "hook.h"
+#include "timer.h"
 
 // Helper macros for report generation
 // Print formatted data into kernel buffer and update length
@@ -20,6 +21,7 @@
 // len: current length of data in buffer
 // limit: maximum size of the buffer
 #define __SCNPRINTF(fmt, ...) (len += scnprintf(kbuf + len, limit - len, fmt, ##__VA_ARGS__))
+#define AVG_SCALE 100
 static long monitor_read(struct file *file, char __user *buf, size_t count, loff_t *ppos) {
 
     char *kbuf;
@@ -81,22 +83,22 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // --- General Status ---
     __SCNPRINTF("========= DEVICE STATUS =========\n");
     __SCNPRINTF("Status: %s\n", get_monitor_status() ? "ENABLED" : "DISABLED");
-    __SCNPRINTF("Max Invocations/s: %llu\n", get_monitor_max_invoks());
-    __SCNPRINTF("Total Syscall Invocations: %llu\n", get_monitor_cur_invoks());
+    __SCNPRINTF("Max: %llu invocations/s\n", get_monitor_max_invoks());
+    __SCNPRINTF("Cur: %llu invocations\n", get_curw_invoks());
+    __SCNPRINTF("Win: %d secs\n", TIMER_INTERVAL_MS / 1000);
 
     // --- Throttling Stats ---
     __SCNPRINTF("======== THROTTLING INFO ========\n");
-    __SCNPRINTF("Peak Invoked Threads: %llu\n", get_peakw_invoked());
     __SCNPRINTF("Peak Blocked Threads: %llu\n", get_peakw_blocked());
-    __SCNPRINTF("Avg Invoked Threads: %llu\n", get_avgw_invoked());
-    __SCNPRINTF("Avg Blocked Threads: %llu\n", get_avgw_blocked());
+    __SCNPRINTF("Avg Blocked Threads: %llu.%02llu\n", get_avgw_blocked(AVG_SCALE) / AVG_SCALE, get_avgw_blocked(AVG_SCALE) % AVG_SCALE);
     
     __SCNPRINTF("======== PEAK DELAY INFO ========\n");
     if (peak_delay.syscall > -1) {
         __SCNPRINTF("Delay: %lld ms\n", peak_delay.delay_ms);
         __SCNPRINTF("Syscall: %d\n", peak_delay.syscall);
         __SCNPRINTF("Program: %s\n", peak_delay.prog_name);
-        __SCNPRINTF("PID: %d, UID: %d\n", peak_delay.pid, peak_delay.uid);
+        __SCNPRINTF("PID: %d\n", peak_delay.pid);
+        __SCNPRINTF("UID: %d\n", peak_delay.uid);
     } else {
         __SCNPRINTF("No delayed syscalls recorded yet.\n");
     }

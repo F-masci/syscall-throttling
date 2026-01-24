@@ -12,6 +12,7 @@
 
 #include "sct.h"
 #include "monitor.h"
+#include "stats.h"
 #include "filter.h"
 #include "timer.h"
 #include "hook.h"
@@ -37,6 +38,7 @@ static int __init sct_init(void) {
     /**
      * The correct initialization order is:
      * - monitor
+     * - stats
      * - filter
      * - timer
      * - hooks
@@ -48,6 +50,12 @@ static int __init sct_init(void) {
     // Initialize monitor structure
     setup_monitor();
     PR_INFO("Monitor structures initialized successfully\n");
+
+    /* ---- STATS ---- */
+
+    // Initialize statistics structures
+    setup_monitor_stats();
+    PR_INFO("Statistics structures initialized successfully\n");
 
     /* ---- FILTER ---- */
 

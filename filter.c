@@ -131,7 +131,7 @@ size_t get_syscall_monitor_vals(scidx_t *buf, size_t max_size) {
  * @param syscall_nr Syscall number to check
  * @return bool True if monitored, false otherwise
  */
-bool is_syscall_monitored(scidx_t syscall_idx) {
+inline bool is_syscall_monitored(scidx_t syscall_idx) {
     if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE)) return false;
     syscall_idx = array_index_nospec(syscall_idx, SYSCALL_TABLE_SIZE);
     PR_DEBUG("Checking if syscall %d is monitored...\n", syscall_idx);
@@ -213,7 +213,7 @@ size_t get_uid_monitor_vals(uid_t *buf, size_t max_size) {
  * @param uid UID to check
  * @return bool True if monitored, false otherwise 
  */
-bool is_uid_monitored(uid_t uid) {
+inline bool is_uid_monitored(uid_t uid) {
 
     struct uid_node *cur;
     bool found = false;
@@ -362,7 +362,7 @@ size_t get_prog_monitor_vals(char **buf, size_t max_size) {
  * @param name Program name to check
  * @return bool True if monitored, false otherwise
  */
-bool is_prog_monitored(const char *name) {
+inline bool is_prog_monitored(const char *name) {
 
     struct prog_node *cur;
     bool found = false;

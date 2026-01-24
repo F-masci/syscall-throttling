@@ -226,7 +226,6 @@ int setup_discover_hook(void) {
 
 }
 
-// FIXME: unregister all hooks
 void cleanup_discover_hook(void) {
 	
 	begin_syscall_table_hack();

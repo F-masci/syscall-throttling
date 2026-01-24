@@ -1,4 +1,8 @@
+#!/bin/bash
+
+IDX=${1:-0}
+
 while [ true ]; do
-    mkdir test1
-    rm -r test1
+    mkdir test$IDX
+    rm -r test$IDX
 done

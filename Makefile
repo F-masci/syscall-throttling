@@ -10,6 +10,11 @@ HFTRACE_DIR := hook/ftrace
 # 0 = Enable DISCOVER hooking
 ENABLE_FTRACE := 0
 
+# Set to SPINLOCK_PROTECTED to use spinlocks as synchronization method
+# Set to RCU_PROTECTED to use RCU as synchronization method (default)
+#
+SYNC_METHOD := RCU_PROTECTED
+
 # DBG_FLAGS := dyndbg=+p
 DBG_FLAGS   :=
 DBG_DEFINE  := -DDEBUG
@@ -25,7 +30,7 @@ MOK_DER  	:= $(PWD)/keys/MOK.der
 ifneq ($(KERNELRELEASE),)
     obj-m := $(MODULE_NAME).o
     $(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o
-	ccflags-y := -std=gnu11 $(DBG_DEFINE)
+	ccflags-y := -std=gnu11 $(DBG_DEFINE) -D$(SYNC_METHOD)
 
 	ifeq ($(ENABLE_FTRACE), 1)
         $(MODULE_NAME)-y += $(HFTRACE_DIR)/fhook.o

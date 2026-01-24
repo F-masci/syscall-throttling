@@ -13,23 +13,63 @@
 
 #include "stats.h"
 
-static DEFINE_SPINLOCK(stats_lock);
+#ifdef _RCU_PROTECTED
 
-static sysc_delayed_t peak_delayed_syscall = {0, "\0", -1, 0, 0};
+struct peak_wrapper {
+    sysc_delayed_t data;
+    struct rcu_head rcu;
+};
 
-static atomic64_t invoked_current_window = ATOMIC64_INIT(0);        // Number of invocations in the current time window
+struct stats_wrapper {
+    wstats_t data;
+    struct rcu_head rcu;
+};
+
+static struct peak_wrapper __rcu *peakd_ptr  = NULL;
+static struct stats_wrapper __rcu *stats_ptr = NULL;
+
+#elif defined _SPINLOCK_PROTECTED
+
+static sysc_delayed_t peak_ds   = {0};
+static wstats_t wstats          = {0, 0, 0};
+
+#endif
+
+static DEFINE_SPINLOCK(peakd_lock);
+static DEFINE_RWLOCK(stats_lock);
+
 static atomic64_t blocked_current_window = ATOMIC64_INIT(0);        // Number of blocked threads in the current time window
 
-// For historical statistics
-// To compute average <invocked|blocked> threads per window:
-//   avg = sum_<invocked|blocked>_threads / total_windows_count
-u64 max_invocked_threads;          // Peak number of invocations observed in a single time window
-u64 max_blocked_threads;           // Peak number of blocked threads observed in a single time window
-u64 sum_invocked_threads;          // Total sum of invocations in all windows (for the average)
-u64 sum_blocked_threads;           // Total sum of blocked threads in all windows (for the average)
-u64 total_windows_count;           // Number of windows considered
-
 /* ---- PEAK DELAYED SYSCALL ---- */
+
+/**
+ * @brief Setup the monitor statistics structures
+ * 
+ * @return int 0 on success, negative error code on failure
+ */
+int setup_monitor_stats(void) {
+#ifdef _RCU_PROTECTED
+    struct peak_wrapper *init_peakd_ptr;
+    struct stats_wrapper *init_stats_ptr;
+
+    init_peakd_ptr = kzalloc(sizeof(struct peak_wrapper), GFP_KERNEL);
+    if (!init_peakd_ptr) return -ENOMEM;
+    init_peakd_ptr->data.syscall = -1; 
+    
+    init_stats_ptr = kzalloc(sizeof(struct stats_wrapper), GFP_KERNEL);
+    if (!init_stats_ptr) {
+        kfree(init_peakd_ptr);
+        return -ENOMEM;
+    }
+
+    // Publish initial pointer
+    RCU_INIT_POINTER(peakd_ptr, init_peakd_ptr);
+    RCU_INIT_POINTER(stats_ptr, init_stats_ptr);
+#else
+#endif
+
+    return 0;
+}
 
 /**
  * @brief Get the peak delayed syscall info
@@ -37,12 +77,30 @@ u64 total_windows_count;           // Number of windows considered
  * @param _out Output structure to fill with peak delayed syscall info
  */
 void get_peak_delayed_syscall(sysc_delayed_t *_out) {
+#ifdef _RCU_PROTECTED
+    struct peak_wrapper *peak_ptr;
+#elif defined _SPINLOCK_PROTECTED
     unsigned long flags;
-    spin_lock_irqsave(&stats_lock, flags);
-    memcpy(_out, &peak_delayed_syscall, sizeof(sysc_delayed_t));
-    spin_unlock_irqrestore(&stats_lock, flags);
+#endif
+
+    // Safety check
+    if(!_out) return;
+
+    // Copy data to output buffer
+#ifdef _RCU_PROTECTED
+    rcu_read_lock();
+    peak_ptr = rcu_dereference(peakd_ptr);
+    if(peak_ptr) memcpy(_out, &peak_ptr->data, sizeof(sysc_delayed_t));
+    rcu_read_unlock();
+#elif defined _SPINLOCK_PROTECTED
+    spin_lock_irqsave(&peakd_lock, flags);
+    memcpy(_out, &peak_ds, sizeof(sysc_delayed_t));
+    spin_unlock_irqrestore(&peakd_lock, flags);
+#endif
 }
 
+// Fast path minimum delay threshold
+// This avoids taking the lock for negligible delays
 #define MIN_DELAY_MS 0
 /**
  * @brief Update the peak delayed syscall info if the new delay is greater than the current peak
@@ -59,28 +117,70 @@ bool update_peak_delay(s64 delay_ms, uid_t uid, pid_t pid, const char *prog_name
 
     unsigned long flags;
     bool updated = false;
+#ifdef _RCU_PROTECTED
+    struct peak_wrapper *old_peak_ptr, *new_peak_ptr;
+#else
+#endif
 
     // Fast check without lock
-    if(delay_ms <= MIN_DELAY_MS) return updated;
-    if(delay_ms <= peak_delayed_syscall.delay_ms) return updated;
+    if(likely(delay_ms <= MIN_DELAY_MS)) return updated;
+#ifdef _RCU_PROTECTED
+    old_peak_ptr = rcu_access_pointer(peakd_ptr);
+    if (likely(old_peak_ptr && delay_ms <= old_peak_ptr->data.delay_ms)) return false;
+#elif defined _SPINLOCK_PROTECTED
+    if(likely(delay_ms <= peak_ds.delay_ms)) return updated;
+#endif
 
-    spin_lock_irqsave(&stats_lock, flags);
+    // Allocate new peak structure
+#ifdef _RCU_PROTECTED
+    new_peak_ptr = kzalloc(sizeof(struct peak_wrapper), GFP_ATOMIC);
+    if (!new_peak_ptr) return false;
+#else
+#endif
 
+    spin_lock_irqsave(&peakd_lock, flags);
+
+#ifdef _RCU_PROTECTED
     // Re-check with lock
-    PR_DEBUG("Checking for peak delayed syscall update: current peak %lld ms, new delay %lld ms\n", peak_delayed_syscall.delay_ms, delay_ms);
-    if (delay_ms > peak_delayed_syscall.delay_ms) {
-        peak_delayed_syscall.delay_ms = delay_ms;
-        peak_delayed_syscall.uid = uid;
-        peak_delayed_syscall.pid = pid;
-        strscpy(peak_delayed_syscall.prog_name, prog_name, TASK_COMM_LEN);
-        peak_delayed_syscall.syscall = syscall;
+    old_peak_ptr = rcu_dereference_protected(peakd_ptr, lockdep_is_held(&peakd_lock));
+    PR_DEBUG("Checking for peak delayed syscall update: current peak %lld ms, new delay %lld ms\n", old_peak_ptr->data.delay_ms, delay_ms);
+    if (likely(old_peak_ptr && delay_ms > old_peak_ptr->data.delay_ms)) {
+        new_peak_ptr->data.delay_ms = delay_ms;
+        new_peak_ptr->data.uid = uid;
+        new_peak_ptr->data.pid = pid;
+        strscpy(new_peak_ptr->data.prog_name, prog_name, TASK_COMM_LEN);
+        new_peak_ptr->data.syscall = syscall;
+
+        // Publish new peak pointer
+        rcu_assign_pointer(peakd_ptr, new_peak_ptr);
+
+        // Free old peak after a grace period
+        if (old_peak_ptr) kfree_rcu(old_peak_ptr, rcu);
+
+#elif defined _SPINLOCK_PROTECTED
+    // Re-check with lock
+    PR_DEBUG("Checking for peak delayed syscall update: current peak %lld ms, new delay %lld ms\n", peak_ds.delay_ms, delay_ms);
+    if (likely(delay_ms > peak_ds.delay_ms)) {
+        peak_ds.delay_ms = delay_ms;
+        peak_ds.uid = uid;
+        peak_ds.pid = pid;
+        strscpy(peak_ds.prog_name, prog_name, TASK_COMM_LEN);
+        peak_ds.syscall = syscall;
+
+#endif
 
         PR_DEBUG("Updated peak delayed syscall: pid=%d, prog_name=%s, uid=%d, syscall=%d, delay_ms=%lld\n", pid, prog_name, uid, syscall, delay_ms);
 
         updated = true;
     }
+#ifdef _RCU_PROTECTED
+    else {
+        kfree(new_peak_ptr);
+    }
+#elif defined _SPINLOCK_PROTECTED
+#endif
 
-    spin_unlock_irqrestore(&stats_lock, flags);
+    spin_unlock_irqrestore(&peakd_lock, flags);
 
     return updated;
 }
@@ -90,28 +190,35 @@ bool update_peak_delay(s64 delay_ms, uid_t uid, pid_t pid, const char *prog_name
  * @brief Reset the peak delayed syscall info
  * 
  */
-void reset_peak_delay(void) {
+int reset_peak_delay(void) {
     unsigned long flags;
+#ifdef _RCU_PROTECTED
+    struct peak_wrapper *old_peak_ptr, *new_peak_ptr;
 
-    spin_lock_irqsave(&stats_lock, flags);
-    peak_delayed_syscall.delay_ms = 0;
-    peak_delayed_syscall.uid = 0;
-    peak_delayed_syscall.pid = 0;
-    memset(peak_delayed_syscall.prog_name, 0, TASK_COMM_LEN);
-    peak_delayed_syscall.syscall = -1;
-    spin_unlock_irqrestore(&stats_lock, flags);
+    new_peak_ptr = kzalloc(sizeof(struct peak_wrapper), GFP_ATOMIC);
+    if (!new_peak_ptr) return -ENOMEM;
+    new_peak_ptr->data.syscall = -1;
+#else
+#endif
+    
+    spin_lock_irqsave(&peakd_lock, flags);
+
+    // Publish new peak pointer
+#ifdef _RCU_PROTECTED
+    old_peak_ptr = rcu_dereference_protected(peakd_ptr, lockdep_is_held(&peakd_lock));
+    rcu_assign_pointer(peakd_ptr, new_peak_ptr);
+    if (old_peak_ptr) kfree_rcu(old_peak_ptr, rcu);
+#elif defined _SPINLOCK_PROTECTED
+    memset(&peak_ds, 0, sizeof(sysc_delayed_t));
+    peak_ds.syscall = -1;
+#endif
+    
+    spin_unlock_irqrestore(&peakd_lock, flags);
+
+    return 0;
 }
 
 /* ---- CURRENT WINDOW COUNTERS ---- */
-
-/**
- * @brief Increment the current window invoked counter
- * 
- * @return u64 The new value of the invoked counter
- */
-u64 increment_curw_invoked(void) {
-    return (u64) atomic64_inc_return(&invoked_current_window);
-}
 
 /**
  * @brief Increment the current window blocked counter
@@ -123,45 +230,71 @@ u64 increment_curw_blocked(void) {
 }
 
 /**
- * @brief Compute and update the statistics for blocked and invoked threads,
+ * @brief Compute and update the statistics for blocked threads,
  * and reset current window counters
  * 
+ * @return u64 The old value of the blocked counter before reset
  */
-void compute_stats_blocked(void) {
+u64 compres_wstats_blocked(void) {
 
     unsigned long flags;
-    u64 curr_invoked, curr_blocked;
+    u64 curr_blocked;
+#ifdef _RCU_PROTECTED
+    struct stats_wrapper *old_stats_ptr, *new_stats_ptr;
+#else
+#endif
 
-    curr_invoked = atomic64_xchg(&invoked_current_window, 0);
+    // Atomically get and reset the current window blocked count
     curr_blocked = atomic64_xchg(&blocked_current_window, 0);
 
-    spin_lock_irqsave(&stats_lock, flags);
+    // Allocate new stats structure
+#ifdef _RCU_PROTECTED
+    new_stats_ptr = kzalloc(sizeof(struct stats_wrapper), GFP_ATOMIC);
+    if (!new_stats_ptr) return curr_blocked;
+#else
+#endif
 
+    write_lock_irqsave(&stats_lock, flags);
+
+#ifdef _RCU_PROTECTED
+
+    // Get old stats
+    old_stats_ptr = rcu_dereference_protected(stats_ptr, lockdep_is_held(&stats_lock));
+    if(old_stats_ptr) {
+        new_stats_ptr->data.max_blocked_threads = old_stats_ptr->data.max_blocked_threads;
+        new_stats_ptr->data.sum_blocked_threads = old_stats_ptr->data.sum_blocked_threads;
+        new_stats_ptr->data.total_windows_count = old_stats_ptr->data.total_windows_count;
+    }
+
+    // Update peak blocked threads if current is greater
+    if (curr_blocked > new_stats_ptr->data.max_blocked_threads)
+        new_stats_ptr->data.max_blocked_threads = curr_blocked;
+
+    // Update sum and window count for average calculation
+    new_stats_ptr->data.sum_blocked_threads += curr_blocked;
+    new_stats_ptr->data.total_windows_count++;
+
+    // Publish new stats pointer
+    rcu_assign_pointer(stats_ptr, new_stats_ptr);
+
+    // Free old stats after a grace period
+    if (old_stats_ptr) kfree_rcu(old_stats_ptr, rcu);
+
+#elif defined _SPINLOCK_PROTECTED
+
+    // Update peak blocked threads if current is greater
     if (curr_blocked > max_blocked_threads)
         max_blocked_threads = curr_blocked;
 
-    if (curr_invoked > max_invocked_threads)
-        max_invocked_threads = curr_invoked;
-
-    sum_invocked_threads += curr_invoked;
+    // Update sum and window count for average calculation
     sum_blocked_threads += curr_blocked;
     total_windows_count++;
 
-    spin_unlock_irqrestore(&stats_lock, flags);
-}
+#endif
 
-/**
- * @brief Get the peakw invoked count
- * 
- * @return u64
- */
-u64 get_peakw_invoked(void) {
-    unsigned long flags;
-    u64 ret;
-    spin_lock_irqsave(&stats_lock, flags);
-    ret = max_invocked_threads;
-    spin_unlock_irqrestore(&stats_lock, flags);
-    return ret;
+    write_unlock_irqrestore(&stats_lock, flags);
+
+    return curr_blocked;
 }
 
 /**
@@ -170,67 +303,101 @@ u64 get_peakw_invoked(void) {
  * @return u64 
  */
 u64 get_peakw_blocked(void) {
-    unsigned long flags;
     u64 ret;
-    spin_lock_irqsave(&stats_lock, flags);
-    ret = max_blocked_threads;
-    spin_unlock_irqrestore(&stats_lock, flags);
+
+#ifdef _RCU_PROTECTED
+    struct stats_wrapper *sptr;
+    rcu_read_lock();
+    sptr = rcu_dereference(stats_ptr);
+    if (sptr) ret = sptr->data.max_blocked_threads;
+    else ret = 0;
+    rcu_read_unlock();
+#elif defined _SPINLOCK_PROTECTED
+    unsigned long flags;
+    read_lock_irqsave(&stats_lock, flags);
+    ret = wstats.max_blocked;
+    read_unlock_irqrestore(&stats_lock, flags);
+#endif
+
     return ret;
 }
 
 /**
- * @brief Get the avgw invoked count
+ * @brief Get the average blocked count scaled by the given factor
+ * Example: with scale = 100 (for percentage), if the average is 2.5 returns 250.
+ * 
+ * @param scale Scaling factor
  * 
  * @return u64 
  */
-u64 get_avgw_invoked(void) {
-    unsigned long flags;
+u64 get_avgw_blocked(u64 scale) {
     u64 sum, count;
+#ifdef _RCU_PROTECTED
+    struct stats_wrapper *sptr;
+#elif defined _SPINLOCK_PROTECTED
+    unsigned long flags;
+#endif
     
-    spin_lock_irqsave(&stats_lock, flags);
-    sum = sum_invocked_threads;
-    count = total_windows_count;
-    spin_unlock_irqrestore(&stats_lock, flags);
+#ifdef _RCU_PROTECTED
+    rcu_read_lock();
+    sptr = rcu_dereference(stats_ptr);
+    if (sptr) {
+        sum = sptr->data.sum_blocked_threads;
+        count = sptr->data.total_windows_count;
+    }
+    rcu_read_unlock();
+
+#elif defined _SPINLOCK_PROTECTED
+    read_lock_irqsave(&stats_lock, flags);
+    sum = wstats.sum_blocked;
+    count = wstats.total_windows;
+    read_unlock_irqrestore(&stats_lock, flags);
+#endif
+
+    if(scale <= 0) scale = 1;
 
     if (count == 0) return 0;
-    return sum / count;
+    return (sum * scale) / count;
 }
 
 /**
- * @brief Get the avgw blocked count
- * 
- * @return u64 
- */
-u64 get_avgw_blocked(void) {
-    unsigned long flags;
-    u64 sum, count;
-    
-    spin_lock_irqsave(&stats_lock, flags);
-    sum = sum_blocked_threads;
-    count = total_windows_count;
-    spin_unlock_irqrestore(&stats_lock, flags);
-
-    if (count == 0) return 0;
-    return sum / count;
-}
-
-/**
- * @brief Reset all blocked/invoked statistics
+ * @brief Reset all blocked statistics on time windows
  * 
  */
-void reset_stats_blocked(void) {
+int reset_stats_blocked(void) {
     unsigned long flags;
+#ifdef _RCU_PROTECTED
+    struct stats_wrapper *new_stats, *old_stats;
+#else
+#endif
     
     // Reset the atomic counters (current window)
-    atomic64_set(&invoked_current_window, 0);
     atomic64_set(&blocked_current_window, 0);
 
-    // Reset the history under lock
-    spin_lock_irqsave(&stats_lock, flags);
-    max_invocked_threads = 0;
-    max_blocked_threads = 0;
-    sum_invocked_threads = 0;
-    sum_blocked_threads = 0;
-    total_windows_count = 0;
-    spin_unlock_irqrestore(&stats_lock, flags);
+#ifdef _RCU_PROTECTED
+    // Allocate new stats structure
+    new_stats = kzalloc(sizeof(struct stats_wrapper), GFP_ATOMIC);
+    if (!new_stats) return -ENOMEM;
+#else
+#endif
+
+    write_lock_irqsave(&stats_lock, flags);
+
+#ifdef _RCU_PROTECTED
+    // Get old stats
+    old_stats = rcu_dereference_protected(stats_ptr, lockdep_is_held(&stats_lock));
+
+    // Publish new stats pointer
+    rcu_assign_pointer(stats_ptr, new_stats);
+
+    // Free old stats after a grace period
+    if (old_stats) kfree_rcu(old_stats, rcu);
+
+#elif defined _SPINLOCK_PROTECTED
+    memset(&wstats, 0, sizeof(wstats_t));
+#endif
+
+    write_unlock_irqrestore(&stats_lock, flags);
+
+    return 0;
 }

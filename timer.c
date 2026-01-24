@@ -33,11 +33,11 @@ void monitor_timer_callback(struct timer_list *t) {
     PR_DEBUG("Monitor timer callback triggered\n");
 
     // Reset invocation count
-    reset_monitor_invoks();
+    reset_curw_invoks();
     PR_DEBUG("Reset syscall invocation count to 0\n");
 
     // Reset statistics for the new interval
-    compute_stats_blocked();
+    compres_wstats_blocked();
     PR_DEBUG("Computed and reset statistics for the new window\n");
 
     // Wake up the wait queue to notify waiting threads
@@ -67,8 +67,9 @@ void setup_monitor_timer(void) {
  * @return int 0 on success, negative error code on failure
  */
 int start_monitor_timer(void) {
-    PR_DEBUG("Starting monitor timer with interval %d ms\n", INTERVAL_MS);
-    mod_timer(&timer, jiffies + msecs_to_jiffies(INTERVAL_MS));
+    PR_DEBUG("Starting monitor timer with interval %d ms\n", TIMER_INTERVAL_MS);
+    reset_curw_invoks();
+    mod_timer(&timer, jiffies + msecs_to_jiffies(TIMER_INTERVAL_MS));
     return 0;
 }
 
