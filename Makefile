@@ -17,8 +17,8 @@ SYNC_METHOD := RCU_PROTECTED
 
 # DBG_FLAGS := dyndbg=+p
 DBG_FLAGS   :=
-DBG_DEFINE  := -DDEBUG
-# DBG_DEFINE  :=
+# DBG_DEFINE  := -DDEBUG
+DBG_DEFINE  :=
 
 KDIR := /lib/modules/$(shell uname -r)/build
 

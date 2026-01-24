@@ -1,3 +1,5 @@
 #define INVALID_ARGUMENTS_ERROR     -1
 #define DEVICE_OPEN_ERROR           -2
 #define IOCTL_EXECUTION_ERROR       -3
+#define LIST_ALLOCATION_ERROR       -4
+#define MEMORY_ALLOCATION_ERROR     -5

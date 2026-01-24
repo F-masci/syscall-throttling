@@ -361,6 +361,61 @@ u64 get_avgw_blocked(u64 scale) {
 }
 
 /**
+ * @brief Get statistics for blocked threads on time windows
+ * 
+ * @param peak_blocked Pointer to store max blocked threads (can be NULL)
+ * @param avg_blocked Pointer to store average blocked threads (can be NULL)
+ * @param scale Scaling factor for average
+ */
+void get_stats_blocked(u64 *peak_blocked, u64 *avg_blocked, u64 scale) {
+#ifdef _RCU_PROTECTED
+    struct stats_wrapper *sptr;
+#elif defined _SPINLOCK_PROTECTED
+    unsigned long flags;
+#endif
+
+    // Early exit if no data requested
+    if(!peak_blocked && !avg_blocked) return;
+
+    // Sanitize scale
+    if(scale <= 0) scale = 1;
+
+    // Initialize outputs
+    if(peak_blocked) *peak_blocked = 0;
+    if(avg_blocked) *avg_blocked = 0;
+
+#ifdef _RCU_PROTECTED
+    rcu_read_lock();
+    sptr = rcu_dereference(stats_ptr);
+    if (sptr) {
+        if (peak_blocked)
+            *peak_blocked = sptr->data.max_blocked_threads;
+
+        if (avg_blocked) {
+            if (sptr->data.total_windows_count == 0)
+                *avg_blocked = 0;
+            else
+                *avg_blocked = (sptr->data.sum_blocked_threads * scale) / sptr->data.total_windows_count;
+        }
+    }
+    rcu_read_unlock();
+
+#elif defined _SPINLOCK_PROTECTED
+    read_lock_irqsave(&stats_lock, flags);
+    if (peak_blocked)
+        *peak_blocked = wstats.max_blocked;
+
+    if (avg_blocked) {
+        if (wstats.total_windows == 0)
+            *avg_blocked = 0;
+        else
+            *avg_blocked = (wstats.sum_blocked * scale) / wstats.total_windows;
+    }
+    read_unlock_irqrestore(&stats_lock, flags);
+#endif
+}
+
+/**
  * @brief Reset all blocked statistics on time windows
  * 
  */

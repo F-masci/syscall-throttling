@@ -18,9 +18,9 @@
 #include "monitor.h"
 #include "filter.h"
 
-#ifdef FTRACE_HOOKING
+#ifdef _FTRACE_HOOKING
 #include "hook/ftrace/fhook.h"
-#else
+#elif defined(_DISCOVER_HOOKING)
 #include "hook/discover/disc.h"
 #include "hook/discover/dhook.h"
 #endif
@@ -56,11 +56,11 @@ int setup_syscall_hooks(size_t num_syscalls) {
     PR_DEBUG("Syscall hooks data structure allocated\n");
 
     // Setup hooking method
-#ifdef FTRACE_HOOKING
+#ifdef _FTRACE_HOOKING
     PR_INFO("Setting up ftrace hooking mode...\n");
     ret = 0;
     PR_INFO("Ftrace hooking mode setup completed\n");
-#else
+#elif defined(_DISCOVER_HOOKING)
     PR_INFO("Setting up discover hooking mode...\n");
     ret = setup_discover_hook();
     if(ret < 0) {
@@ -92,9 +92,9 @@ void cleanup_syscall_hooks(void) {
     PR_DEBUG("Syscall hooks data structure freed\n");
 
     // Cleanup hooking method
-#ifdef FTRACE_HOOKING
+#ifdef _FTRACE_HOOKING
     PR_DEBUG("Ftrace hooking mode cleaned up\n");
-#else
+#elif defined(_DISCOVER_HOOKING)
     cleanup_discover_hook();
     PR_DEBUG("Discover hooking mode cleaned up\n");
 #endif
@@ -124,10 +124,10 @@ int install_syscall_hook(scidx_t syscall_idx) {
     }
 
     // Install syscall hook and save original syscall address
-#ifdef FTRACE_HOOKING
+#ifdef _FTRACE_HOOKING
     PR_DEBUG("Installing ftrace hook on syscall %d\n", syscall_idx);
     original_addr = install_syscall_fhook(syscall_idx, (unsigned long) syscall_wrapper, &hook->fops);
-#else
+#elif defined(_DISCOVER_HOOKING)
     PR_DEBUG("Installing discover hook on syscall %d\n", syscall_idx);
     original_addr = install_syscall_dhook(syscall_idx, (unsigned long) syscall_wrapper);
 #endif
@@ -222,14 +222,14 @@ int uninstall_syscall_hook(scidx_t syscall_idx) {
     }
 
     // Uninstall syscall hook
-#ifdef FTRACE_HOOKING
+#ifdef _FTRACE_HOOKING
     PR_DEBUG("Uninstalling ftrace hook on syscall %d\n", syscall_idx);
     ret = uninstall_syscall_fhook(syscall_idx, &hook->fops);
     if(ret == (unsigned long) NULL) {
         PR_ERROR("Failed to uninstall ftrace hook on syscall %d\n", syscall_idx);
         return ret;
     }
-#else
+#elif defined(_DISCOVER_HOOKING)
     PR_DEBUG("Uninstalling discover hook on syscall %d\n", syscall_idx);
     ret = uninstall_syscall_dhook(syscall_idx);
     if(ret == (unsigned long) NULL) {

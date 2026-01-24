@@ -12,24 +12,49 @@
 #include "hook.h"
 #include "timer.h"
 
-// Helper macros for report generation
-// Print formatted data into kernel buffer and update length
-// 
-// fmt: format string
-// ...: additional arguments for formatting
-//
-// len: current length of data in buffer
-// limit: maximum size of the buffer
+/**
+ * @brief Helper macro for report generation.
+ * Print formatted data into kernel buffer and update length
+ * 
+ * @param fmt Format string
+ * @param ... Additional arguments for formatting
+ * 
+ * @return int Updated length of data in buffer
+ * 
+ * @note This macro uses scnprintf to safely format and append data to the kernel buffer.
+ * It updates the length and limit variables to reflect the new size of the data.
+ * @note Ensure that 'len' and 'limit' variables are defined in the scope where this macro is used.
+ * 
+ */
 #define __SCNPRINTF(fmt, ...) (len += scnprintf(kbuf + len, limit - len, fmt, ##__VA_ARGS__))
+
 #define AVG_SCALE 100
+
+#define BYTES_HEADER_STATS     1024 // default is 1024 bytes for Header and Stats
+#define BYTES_PER_SYSCALL_LINE 32   // default is 32 bytes per syscall line
+#define BYTES_PER_UID_LINE     32   // default is 32 bytes per UID line
+#define BYTES_PER_PROG_LINE    64   // default is 64 bytes per Program line
+
+/**
+ * @brief Read operation for the monitor device.
+ * Generates a report of the current monitoring status and statistics.
+ * 
+ * @param file
+ * @param buf 
+ * @param count 
+ * @param ppos 
+ * @return long 
+ */
 static long monitor_read(struct file *file, char __user *buf, size_t count, loff_t *ppos) {
 
-    char *kbuf;
+    long ret;
+    size_t j;
     int len = 0;
-    int limit = PAGE_SIZE;
 
+    bool status;
+    u64 max_invoks, cur_invoks;
+    u64 peak_blocked, avg_blocked;
     sysc_delayed_t peak_delay;
-    unsigned int j;
 
     scidx_t *syscall_list;
     size_t syscall_count;
@@ -40,57 +65,69 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     char **prog_list;
     size_t prog_count;
 
-    get_peak_delayed_syscall(&peak_delay);
+    char *kbuf;
+    size_t limit = PAGE_SIZE;
 
-    // Allocate kernel buffer
-    kbuf = (char *)__get_free_page(GFP_KERNEL);
-    if (!kbuf) return -ENOMEM;
+    /* ---- BUFFER ALLOCATION ---- */
+
+    // Set the error code to return in case of allocation failure
+    ret = -ENOMEM;
+
+    // Get monitor status and limits
+    status = get_monitor_status();
+    max_invoks = get_monitor_max_invoks();
+    cur_invoks = get_curw_invoks();
+
+    // Get throttling stats
+    get_stats_blocked(&peak_blocked, &avg_blocked, AVG_SCALE);
+
+    // Get peak delayed syscall info
+    get_peak_delayed_syscall(&peak_delay);
 
     // Allocate temporary syscall list
     syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
-    if (!syscall_list) {
-        free_page((unsigned long) kbuf);
-        return -ENOMEM;
-    }
+    if (!syscall_list) goto alloc_syscall_list_err;
     syscall_count = get_syscall_monitor_vals(syscall_list, SYSCALL_TABLE_SIZE);
 
     // Allocate temporary UID list
     uid_list = kmalloc_array(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
-    if (!uid_list) {
-        kfree(syscall_list);
-        free_page((unsigned long) kbuf);
-        return -ENOMEM;
-    }
+    if (!uid_list) goto alloc_uid_list_err;
     uid_count = get_uid_monitor_vals(uid_list, MAX_ITEMS);
 
     // Allocate temporary Prog Name list
     prog_list = kmalloc_array(MAX_ITEMS, sizeof(char *), GFP_KERNEL);
-    if (!prog_list) {
-        kfree(uid_list);
-        kfree(syscall_list);
-        free_page((unsigned long) kbuf);
-        return -ENOMEM;
-    }
+    if (!prog_list) goto alloc_prog_list_err;
     prog_count = get_prog_monitor_vals(prog_list, MAX_ITEMS);
 
-    // FIXME: Locking the device data structure
-    // mutex_lock(&dev->lock);
+    // Compute required buffer size
+    // Estimate the size needed for the report
+    // based on the number of monitored items
+    // and the formatting overhead
+    limit = BYTES_HEADER_STATS;
+    limit += syscall_count * BYTES_PER_SYSCALL_LINE;
+    limit += uid_count * BYTES_PER_UID_LINE;
+    limit += prog_count * BYTES_PER_PROG_LINE;
 
-	// ---------------------------
-    // ---- REPORT GENERATION ----
-    // ---------------------------
+    // Allocate kernel buffer for report
+    kbuf = kvzalloc(limit, GFP_KERNEL);
+    if (!kbuf) goto alloc_kbuff_err;
+
+    /* ---- REPORT GENERATION ---- */
+
+    // Set the number of bytes to read
+    ret = 0;
 
     // --- General Status ---
     __SCNPRINTF("========= DEVICE STATUS =========\n");
-    __SCNPRINTF("Status: %s\n", get_monitor_status() ? "ENABLED" : "DISABLED");
-    __SCNPRINTF("Max: %llu invocations/s\n", get_monitor_max_invoks());
-    __SCNPRINTF("Cur: %llu invocations\n", get_curw_invoks());
+    __SCNPRINTF("Status: %s\n", status ? "ENABLED" : "DISABLED");
+    __SCNPRINTF("Max: %llu invocations/s\n", max_invoks);
+    __SCNPRINTF("Cur: %llu invocations\n", cur_invoks);
     __SCNPRINTF("Win: %d secs\n", TIMER_INTERVAL_MS / 1000);
 
     // --- Throttling Stats ---
     __SCNPRINTF("======== THROTTLING INFO ========\n");
-    __SCNPRINTF("Peak Blocked Threads: %llu\n", get_peakw_blocked());
-    __SCNPRINTF("Avg Blocked Threads: %llu.%02llu\n", get_avgw_blocked(AVG_SCALE) / AVG_SCALE, get_avgw_blocked(AVG_SCALE) % AVG_SCALE);
+    __SCNPRINTF("Peak Blocked Threads: %llu\n", peak_blocked);
+    __SCNPRINTF("Avg Blocked Threads: %llu.%02llu\n", avg_blocked / AVG_SCALE, avg_blocked % AVG_SCALE);
     
     __SCNPRINTF("======== PEAK DELAY INFO ========\n");
     if (peak_delay.syscall > -1) {
@@ -107,32 +144,30 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // --- Syscalls ---
     __SCNPRINTF("Registered Syscalls:\n");
     for (j = 0; j < syscall_count; j++) {
-        __SCNPRINTF("  - [%d] %u\n", j, syscall_list[j]);
+        __SCNPRINTF("  - [%lu] %u\n", j, syscall_list[j]);
     }
 
     // --- UIDs ---
     __SCNPRINTF("Registered UIDs:\n");
     for (j = 0; j < uid_count; j++) {
-        __SCNPRINTF("  - [%d] %u\n", j, uid_list[j]);
+        __SCNPRINTF("  - [%lu] %u\n", j, uid_list[j]);
     }
 
     // --- Programs ---
     __SCNPRINTF("Registered Programs:\n");
     for (j = 0; j < prog_count; j++) {
-        __SCNPRINTF("  - [%d] %s\n", j, prog_list[j]);
+        __SCNPRINTF("  - [%lu] %s\n", j, prog_list[j]);
     }
 
     __SCNPRINTF("=================================\n");
 
-	// ---------------------------
-    // ---- END GENERATION ----
-    // ---------------------------
+	/* ---- SEND TO USER ---- */
 
     // Copy data to user space
     // If user read all data, return 0 to signal EOF
     if (*ppos >= len) {
-        free_page((unsigned long)kbuf);
-        return 0;
+        ret = 0;
+        goto no_data_to_copy;
     }
 
     // Compute how many bytes to copy
@@ -141,39 +176,82 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 	// Copy data to user buffer
     if (copy_to_user(buf, kbuf + *ppos, count)) {
-        free_page((unsigned long)kbuf);
-        return -EFAULT;
+        ret = -EFAULT;
+        goto no_data_to_copy;
     }
 
     // Update read position for next call
     *ppos += count;
 
-    // Free kernel buffer
-    free_page((unsigned long)kbuf);
+    // Set return value to number of bytes read
+    ret = count;
 
-    // Free temporary lists
-    kfree(syscall_list);
-    kfree(uid_list);
+    /* ---- CLEANUP ---- */
+
+no_data_to_copy:
+    kvfree(kbuf);
+
+alloc_kbuff_err:
+    // Free temporary program names not only the array
+    for (j = 0; j < prog_count; j++) {
+        kfree(prog_list[j]);
+    }
     kfree(prog_list);
 
-	// Return the number of bytes read
-    return count;
+alloc_prog_list_err:
+    kfree(uid_list);
+
+alloc_uid_list_err:
+    kfree(syscall_list);
+
+alloc_syscall_list_err:
+
+	// Return the number of bytes read or error code
+    return ret;
+
 }
 #undef __SCNPRINTF
 
+
+/**
+ * @brief IOCTL operation for the monitor device.
+ * Handles various commands to add/remove monitoring filters and configure settings.
+ * 
+ * @param file 
+ * @param cmd 
+ * @param arg 
+ * @return long 
+ */
 static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
 
-    scidx_t k_syscall_nr;
+    long ret = 0;
+
+    // Temporary variables for various IOCTL write operations
+    scidx_t k_syscall_idx;
     uid_t k_uid;
     char *k_progname;
 
+    // Temporary variables for various IOCTL read operations
+    monitor_status_t k_status_info;
+    throttling_stats_t k_stats_info;
+    sysc_delayed_t k_delay_info;
+    list_query_t k_query;
+
+    // Temporary variables for various IOCTL configuration operations
     u64 k_max_invoks;
     bool k_status;
+
+    // Temporary lists for fetching monitored items
+    scidx_t *tmp_syscall_list = NULL;
+    uid_t *tmp_uid_list = NULL;
+    char **tmp_prog_list = NULL;
+    size_t fetched_count, real_items, i;
+    char *flat_prog_buf = NULL;
 
     // Check root permissions
     // We can also use capable(CAP_SYS_ADMIN) if needed
     if (current_euid().val != 0) {
-        PR_WARN_PID("Permission denied for non-root user: command %u\n", cmd);
+        PR_ERROR_PID("Permission denied for non-root user: command %u\n", cmd);
         return -EPERM;
     }
 
@@ -182,16 +260,16 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         /* --- ADD COMMANDS --- */
 
         case SCT_IOCTL_ADD_SYSCALL:
-            if (copy_from_user(&k_syscall_nr, (scidx_t __user *)arg, sizeof(k_syscall_nr))) return -EFAULT;
-            PR_DEBUG("Adding syscall %d\n", k_syscall_nr);
-            add_syscall_monitoring(k_syscall_nr);
-            install_syscall_hook(k_syscall_nr);
-            PR_INFO("Added syscall %d\n", k_syscall_nr);
+            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) return -EFAULT;
+            PR_DEBUG("Received command to add syscall %d\n", k_syscall_idx);
+            add_syscall_monitoring(k_syscall_idx);
+            install_syscall_hook(k_syscall_idx);
+            PR_INFO("Added syscall %d\n", k_syscall_idx);
             break;
 
         case SCT_IOCTL_ADD_UID:
             if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
-            PR_DEBUG("Adding UID %d\n", k_uid);
+            PR_DEBUG("Received command to add UID %d\n", k_uid);
             add_uid_monitoring(k_uid);
             PR_INFO("Added UID %d\n", k_uid);
             break;
@@ -199,27 +277,183 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         case SCT_IOCTL_ADD_PROG:
             k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
             if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
-            PR_DEBUG("Adding prog name %s\n", k_progname);
+            PR_DEBUG("Received command to add prog name %s\n", k_progname);
             add_prog_monitoring(k_progname);
 			PR_INFO("Added prog name %s\n", k_progname);
-
-            // Free temporary program name
             kfree(k_progname);
+            break;
+
+        /* --- READ COMMANDS --- */
+
+        case SCT_IOCTL_GET_STATUS:
+            PR_DEBUG("Received command to get monitor status\n");            
+            k_status_info.enabled = get_monitor_status() ? 1 : 0;
+            k_status_info.max_invoks = get_monitor_max_invoks();
+            k_status_info.cur_invoks = get_curw_invoks();
+            k_status_info.window_sec = TIMER_INTERVAL_MS / 1000;
+            if (copy_to_user((void __user *)arg, &k_status_info, sizeof(k_status_info)))  return -EFAULT;
+            break;
+
+        case SCT_IOCTL_GET_STATS:
+            PR_DEBUG("Received command to get throttling stats\n");
+
+            // Get stats of throttling
+            get_stats_blocked(&k_stats_info.peak_blocked, &k_stats_info.avg_blocked_int, AVG_SCALE);
+            
+            // Update avg blocked to have integer and decimal parts
+            k_stats_info.avg_blocked_dec = k_stats_info.avg_blocked_int % AVG_SCALE;
+            k_stats_info.avg_blocked_int = k_stats_info.avg_blocked_int / AVG_SCALE;
+
+            if (copy_to_user((void __user *)arg, &k_stats_info, sizeof(k_stats_info))) return -EFAULT;
+            break;
+
+        case SCT_IOCTL_GET_PEAK_DELAY:
+            PR_DEBUG("Received command to get peak delay info\n");
+            get_peak_delayed_syscall(&k_delay_info);
+            if (copy_to_user((void __user *)arg, &k_delay_info, sizeof(k_delay_info))) return -EFAULT;
+            break;
+
+        
+        case SCT_IOCTL_GET_SYSCALL_LIST:
+            // The user provides a list_query_t struct with:
+            // - ptr: pointer to user buffer to fill
+            // - max_items: maximum number of items that can be stored in the buffer
+            // The kernel fills the buffer and updates real_items with the actual number of items copied
+            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) return -EFAULT;
+            PR_DEBUG("Received command to get syscall list\n");
+
+
+            // Allocate temporary array to fetch syscalls
+            tmp_syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
+            if (!tmp_syscall_list) return -ENOMEM;
+            real_items = get_syscall_monitor_vals(tmp_syscall_list, SYSCALL_TABLE_SIZE);
+            
+            // Compute how many items to copy based on user buffer size
+            fetched_count = real_items;
+            if (k_query.max_items < fetched_count) fetched_count = k_query.max_items;
+
+            // Copy syscall list to user buffer
+            if (copy_to_user(k_query.ptr, tmp_syscall_list, fetched_count * sizeof(scidx_t))) {
+                ret = -EFAULT;
+                goto send_syscall_err;
+            }
+
+            // Update real_items and fetched_items in user struct
+            k_query.real_items = real_items;
+            k_query.fetched_items = fetched_count;
+            if (copy_to_user((void __user *)arg, &k_query, sizeof(k_query))) {
+                ret = -EFAULT;
+                goto send_syscall_err;
+            }
+
+        send_syscall_err:
+            kfree(tmp_syscall_list);
+            break;
+
+        case SCT_IOCTL_GET_UID_LIST:
+            // The user provides a list_query_t struct with:
+            // - ptr: pointer to user buffer to fill
+            // - max_items: maximum number of items that can be stored in the buffer
+            // The kernel fills the buffer and updates real_items with the actual number of items copied
+            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) return -EFAULT;
+            PR_DEBUG("Received command to get UID list\n");
+
+            // Allocate temporary array to fetch UIDs
+            tmp_uid_list = kmalloc_array(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
+            if (!tmp_uid_list) return -ENOMEM;
+            real_items = get_uid_monitor_vals(tmp_uid_list, MAX_ITEMS);
+
+            // Compute how many items to copy based on user buffer size
+            fetched_count = real_items;
+            if (k_query.max_items < fetched_count) fetched_count = k_query.max_items;
+
+            // Copy UID list to user buffer
+            if (copy_to_user(k_query.ptr, tmp_uid_list, fetched_count * sizeof(uid_t))) {
+                ret = -EFAULT;
+                goto send_uid_err;
+            }
+
+            // Update real_items and fetched_items in user struct
+            k_query.real_items = real_items;
+            k_query.fetched_items = fetched_count;
+            if (copy_to_user((void __user *)arg, &k_query, sizeof(k_query))) {
+                ret = -EFAULT;
+                goto send_uid_err;
+            }
+
+        send_uid_err:
+            kfree(tmp_uid_list);
+            break;
+
+        case SCT_IOCTL_GET_PROG_LIST:
+            // The user provides a list_query_t struct with:
+            // - ptr: pointer to user buffer to fill
+            // - max_items: maximum number of items that can be stored in the buffer
+            // The kernel fills the buffer and updates real_items with the actual number of items copied
+            //
+            // We assume the user allocated a flat buffer of size max_items * TASK_COMM_LEN bytes
+            // so we will copy fixed-length strings into it, each of TASK_COMM_LEN bytes, one after another.
+            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) return -EFAULT;
+            PR_DEBUG("Received command to get prog name list\n");
+
+            // Allocate temporary array to fetch prog names
+            tmp_prog_list = kmalloc_array(MAX_ITEMS, sizeof(char *), GFP_KERNEL);
+            if (!tmp_prog_list) return -ENOMEM;
+            real_items = get_prog_monitor_vals(tmp_prog_list, MAX_ITEMS);
+
+            // Compute how many items to copy based on user buffer size
+            fetched_count = real_items;
+            if (k_query.max_items < fetched_count) fetched_count = k_query.max_items;
+
+            // Allocate flat buffer to hold prog names
+            flat_prog_buf = kzalloc(fetched_count * TASK_COMM_LEN, GFP_KERNEL);
+            if (!flat_prog_buf) {
+                ret = -ENOMEM;
+                goto alloc_flat_buf_err;
+            }
+
+            // Create flat buffer with fixed-length entries
+            // from tmp prog list
+            for (i = 0; i < fetched_count; i++) {
+                memcpy(flat_prog_buf + (i * TASK_COMM_LEN), tmp_prog_list[i], TASK_COMM_LEN);
+            }
+
+            // Copy flat buffer to user space
+            if (copy_to_user(k_query.ptr, flat_prog_buf, fetched_count * TASK_COMM_LEN)) {
+                ret = -EFAULT;
+                goto send_prog_err;
+            }
+
+            // Update real_items and fetched_items in user struct
+            k_query.real_items = real_items;
+            k_query.fetched_items = fetched_count;
+            if (copy_to_user((void __user *)arg, &k_query, sizeof(k_query))) {
+                ret = -EFAULT;
+                goto send_prog_err;
+            }
+        
+        send_prog_err:
+            kfree(flat_prog_buf);
+
+        alloc_flat_buf_err:
+            // Free list and names buffer
+            for (i = 0; i < fetched_count; i++) kfree(tmp_prog_list[i]);
+            kfree(tmp_prog_list);
             break;
 
         /* --- REMOVE COMMANDS --- */
 
         case SCT_IOCTL_DEL_SYSCALL:
-            if (copy_from_user(&k_syscall_nr, (scidx_t __user *)arg, sizeof(k_syscall_nr))) return -EFAULT;
-            PR_DEBUG("Removing syscall %d\n", k_syscall_nr);
-            uninstall_syscall_hook(k_syscall_nr);
-            remove_syscall_monitoring(k_syscall_nr);
-            PR_INFO("Removed syscall %d\n", k_syscall_nr);
+            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) return -EFAULT;
+            PR_DEBUG("Received command to remove syscall %d\n", k_syscall_idx);
+            uninstall_syscall_hook(k_syscall_idx);
+            remove_syscall_monitoring(k_syscall_idx);
+            PR_INFO("Removed syscall %d\n", k_syscall_idx);
             break;
 
         case SCT_IOCTL_DEL_UID:
             if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
-            PR_DEBUG("Removing UID %d\n", k_uid);
+            PR_DEBUG("Received command to remove UID %d\n", k_uid);
             remove_uid_monitoring(k_uid);
             PR_INFO("Removed UID %d\n", k_uid);
             break;
@@ -227,11 +461,9 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         case SCT_IOCTL_DEL_PROG:
             k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
             if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
-            PR_DEBUG("Removing prog name %s\n", k_progname);
+            PR_DEBUG("Received command to remove prog name %s\n", k_progname);
             remove_prog_monitoring(k_progname);
             PR_INFO("Removed prog name %s\n", k_progname);
-
-            // Free temporary program name
             kfree(k_progname);
             break;
 
@@ -239,23 +471,25 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
         case SCT_IOCTL_SET_LIMIT:
             if (copy_from_user(&k_max_invoks, (u64 __user *)arg, sizeof(k_max_invoks))) return -EFAULT;
-            PR_INFO("Setting new max invocations limit: %llu\n", k_max_invoks);
+            PR_DEBUG("Received command to set new max invocations limit: %llu\n", k_max_invoks);
             set_monitor_max_invoks(k_max_invoks);
+            PR_INFO("Set new max invocations limit: %llu\n", k_max_invoks);
             break;
 
         case SCT_IOCTL_SET_STATUS:
             if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) return -EFAULT;
-            PR_INFO("Setting monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
+            PR_DEBUG("Received command to set monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
             set_monitor_status(k_status != 0);
-            
-            // TODO: Wake up all waiting processes if disabling
+            PR_INFO("Set monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
             break;
 
         default:
-            return -ENOTTY;
+            PR_ERROR_PID("Invalid IOCTL command: %u\n", cmd);
+            return -EINVAL;
     }
 
-    return 0;
+    return ret;
+
 }
 
 const struct file_operations monitor_operations = {

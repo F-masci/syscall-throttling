@@ -7,6 +7,7 @@ typedef int scidx_t;
     #include <linux/types.h>
     #include <linux/wait.h>
     #include <linux/ftrace.h>
+    #include <linux/sched.h>
 
     typedef struct {
         bool active;
@@ -16,14 +17,6 @@ typedef int scidx_t;
         struct ftrace_ops fops;
         // discover mode - no additional fields needed
     } hook_syscall_t;
-    
-    typedef struct {
-        pid_t pid;
-        char prog_name[TASK_COMM_LEN];
-        scidx_t syscall;
-        uid_t uid;
-        s64 delay_ms;
-    } sysc_delayed_t;
 
     // For historical statistics
     // To compute average blocked threads per window:
@@ -37,8 +30,50 @@ typedef int scidx_t;
 #else
     #include <stdint.h>
     
+    #define __user
+
+    #ifndef TASK_COMM_LEN
+    #define TASK_COMM_LEN 16
+    #endif
+
+    typedef int64_t s64;
     typedef uint64_t u64;
     typedef uint32_t u32;
     typedef uint16_t u16;
     typedef uint8_t  u8;
 #endif
+
+typedef struct {
+    pid_t pid;
+    char prog_name[TASK_COMM_LEN];
+    scidx_t syscall;
+    uid_t uid;
+    s64 delay_ms;
+} sysc_delayed_t;
+
+/* ---- IOCTL STRUCTURES ---- */
+
+// Monitor status structure
+typedef struct {
+    int enabled;
+    u64 max_invoks;
+    u64 cur_invoks;
+    u64 window_sec;
+} monitor_status_t;
+
+// Throttling statistics structure
+typedef struct {
+    u64 peak_blocked;
+    u64 avg_blocked_int;
+    u64 avg_blocked_dec;
+} throttling_stats_t;
+
+// Generic structure for requesting lists (Syscall, UID, Prog)
+// The user fills 'ptr' (allocated buffer) and 'max_items'.
+// The kernel fills the buffer and updates 'real_items'.
+typedef struct {
+    void __user *ptr;
+    size_t max_items;
+    size_t real_items;
+    size_t fetched_items;
+} list_query_t;

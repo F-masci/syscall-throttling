@@ -22,6 +22,12 @@
     #define _SPINLOCK_PROTECTED
 #endif
 
+#ifndef FTRACE_HOOKING
+    #define _DISCOVER_HOOKING
+#else
+    #define _FTRACE_HOOKING
+#endif
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>

@@ -94,12 +94,27 @@ void cleanup_monitor(void) {
     PR_DEBUG("Awakening monitor wait queue\n");
     wake_up_all(&syscall_wqueue);
 
+    // Wait for incoming thread to enter syscall wrapper
+    // This synchronization is necessary to avoid that threads who read
+    // the hook address befeore it uninstallation, then try to use it after
+    //
+    // Whith this synchronization, we ensure that all threads that could
+    // have read the hook address have already entered the syscall wrapper
+    PR_DEBUG("Waiting for incoming threads to enter syscall wrapper\n");
+    synchronize_rcu();
+
     // Wait for all active threads to exit
     PR_DEBUG("Waiting for %d active monitor threads to exit\n", atomic_read(&active_threads));
     wait_event(unload_wqueue, atomic_read(&active_threads) == 0);
 
-    // Ensure all RCU read-side critical sections have completed
-    PR_DEBUG("Waiting for RCU grace period to complete\n");
+    // Wait for exiting threads to exit syscall wrapper
+    // This synchronization is necessary to avoid that threads that
+    // are inside the syscall wrapper and are exiting aftere executing
+    // the original syscall, could execute the return to the caller
+    //
+    // With this synchronization, we ensure that all threads that were
+    // inside the syscall wrapper have already exited it
+    PR_DEBUG("Waiting for exiting threads to exit syscall wrapper\n");
     synchronize_rcu();
 
 #ifdef _RCU_PROTECTED
@@ -466,10 +481,11 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
         ret = -EINVAL;
         goto invalid_original_addr;
     }
-#ifdef FTRACE_HOOKING
+#ifdef _FTRACE_HOOKING
     // Sum to original_addr the offset of MCOUNT_INSN_SIZE to skip ftrace prologue.
     // This is necessary to avoid infinite recursion.
     original_addr += MCOUNT_INSN_SIZE;
+#elif defined(_DISCOVER_HOOKING)
 #else
 #endif
     syscall = (asmlinkage long (*)(struct pt_regs *)) original_addr;
