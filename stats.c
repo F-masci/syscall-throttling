@@ -72,6 +72,28 @@ int setup_monitor_stats(void) {
 }
 
 /**
+ * @brief Cleanup the monitor statistics structures
+ * 
+ */
+void cleanup_monitor_stats(void) {
+#ifdef _RCU_PROTECTED
+    struct peak_wrapper *_peakd_ptr;
+    struct stats_wrapper *_stats_ptr;
+
+    // Cleanup peak delayed syscall structure
+    _peakd_ptr = rcu_dereference_protected(peakd_ptr, true);
+    if (_peakd_ptr) kfree_rcu(_peakd_ptr, rcu);
+    RCU_INIT_POINTER(peakd_ptr, NULL);
+
+    // Cleanup stats structure
+    _stats_ptr = rcu_dereference_protected(stats_ptr, true);
+    if (_stats_ptr) kfree_rcu(_stats_ptr, rcu);
+    RCU_INIT_POINTER(stats_ptr, NULL);
+#else
+#endif
+}
+
+/**
  * @brief Get the peak delayed syscall info
  * 
  * @param _out Output structure to fill with peak delayed syscall info

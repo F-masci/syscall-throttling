@@ -6,6 +6,13 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/nospec.h>
+#include <asm/barrier.h>
+
+#include <linux/sched.h>        /* Per struct task_struct */
+#include <linux/sched/signal.h> /* Per send_sig_info, SEND_SIG_INFO */
+#include <linux/pid.h>          /* Per struct pid, find_get_pid, get_pid_task, put_pid */
+#include <linux/bitmap.h>       /* Per for_each_set_bit (se usi la mia ottimizzazione) */
+#include <linux/bitops.h>       /* Helper per operazioni sui bit */
 
 #include "monitor.h"
 #include "hook.h"
@@ -17,33 +24,20 @@
 static wait_queue_head_t syscall_wqueue;
 static atomic64_t invoks = ATOMIC64_INIT(0);
 
-static bool unloading = false;
-static atomic_t active_threads = ATOMIC_INIT(0);
+static bool unloading           = false;
+static atomic_t active_threads  = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(unload_wqueue);
-
-#ifdef _RCU_PROTECTED
-struct max_invoks_wrapper {
-    u64 max_invoks;
-    struct rcu_head rcu;
-};
-
-struct status_wrapper {
-    bool status;
-    struct rcu_head rcu;
-};
-
-static struct max_invoks_wrapper __rcu *minvoks_ptr = NULL;
-static struct status_wrapper __rcu *status_ptr = NULL;
-
-#elif defined _SPINLOCK_PROTECTED
 
 static bool status      = DEFAULT_STATUS;
 static u64 max_invoks   = DEFAULT_MAX_INVOKS;
-
-#endif
+static bool fast_unload = DEFAULT_FAST_UNLOAD;
 
 static DEFINE_RWLOCK(minvoks_lock);
 static DEFINE_RWLOCK(status_lock);
+static DEFINE_RWLOCK(fast_unload_lock);
+
+static int __enable_monitoring(void);
+static int __disable_monitoring(void);
 
 /**
  * @brief Set the up monitor structure. Initialize wait queue and monitor parameters.
@@ -51,29 +45,6 @@ static DEFINE_RWLOCK(status_lock);
  * @return int 0 on success, negative error code on failure
  */
 int setup_monitor(void) {
-#ifdef _RCU_PROTECTED
-    struct max_invoks_wrapper *init_minvoks_ptr;
-    struct status_wrapper *init_status_ptr;
-
-    init_minvoks_ptr = kzalloc(sizeof(struct max_invoks_wrapper), GFP_KERNEL);
-    if (!init_minvoks_ptr) return -ENOMEM;
-
-    init_status_ptr = kzalloc(sizeof(struct status_wrapper), GFP_KERNEL);
-    if (!init_status_ptr) {
-        kfree(init_minvoks_ptr);
-        return -ENOMEM;
-    }
-
-    // Set initial configuration
-    init_minvoks_ptr->max_invoks    = DEFAULT_MAX_INVOKS;
-    init_status_ptr->status         = DEFAULT_STATUS;
-
-    // Assign initial configuration
-    rcu_assign_pointer(minvoks_ptr, init_minvoks_ptr);
-    rcu_assign_pointer(status_ptr, init_status_ptr);
-
-#elif defined _SPINLOCK_PROTECTED
-#endif
 
     init_waitqueue_head(&syscall_wqueue);
     PR_DEBUG("Initialized monitor wait queue\n");
@@ -89,6 +60,7 @@ int setup_monitor(void) {
  */
 void cleanup_monitor(void) {
     unloading = true;
+    mb();
 
     // Wake up all waiting threads to allow them to exit
     PR_DEBUG("Awakening monitor wait queue\n");
@@ -104,8 +76,9 @@ void cleanup_monitor(void) {
     synchronize_rcu();
 
     // Wait for all active threads to exit
-    PR_DEBUG("Waiting for %d active monitor threads to exit\n", atomic_read(&active_threads));
+    PR_INFO("Waiting for %d active monitor threads started to exit...\n", atomic_read(&active_threads));
     wait_event(unload_wqueue, atomic_read(&active_threads) == 0);
+    PR_INFO("All active monitor threads started to exit...\n");
 
     // Wait for exiting threads to exit syscall wrapper
     // This synchronization is necessary to avoid that threads that
@@ -114,16 +87,8 @@ void cleanup_monitor(void) {
     //
     // With this synchronization, we ensure that all threads that were
     // inside the syscall wrapper have already exited it
-    PR_DEBUG("Waiting for exiting threads to exit syscall wrapper\n");
+    PR_DEBUG("Waiting for outcoming threads to exit syscall wrapper\n");
     synchronize_rcu();
-
-#ifdef _RCU_PROTECTED
-    // Free monitor configuration structure
-    kfree(rcu_dereference_protected(minvoks_ptr, true));
-    kfree(rcu_dereference_protected(status_ptr, true));
-    PR_DEBUG("Freed monitor configuration structure\n");
-#elif defined _SPINLOCK_PROTECTED
-#endif
 
 }
 
@@ -162,23 +127,7 @@ inline u64 reset_curw_invoks(void) {
  * @return unsigned long 
  */
 inline u64 get_monitor_max_invoks(void) {
-    u64 ret;
-
-#ifdef _RCU_PROTECTED
-    struct max_invoks_wrapper *miptr;
-    rcu_read_lock();
-    miptr = rcu_dereference(minvoks_ptr);
-    if (miptr) ret = miptr->max_invoks;
-    else ret = 0;
-    rcu_read_unlock();
-#elif defined _SPINLOCK_PROTECTED
-    unsigned long flags;
-    read_lock_irqsave(&minvoks_lock, flags);
-    ret = max_invoks;
-    read_unlock_irqrestore(&minvoks_lock, flags);
-#endif
-
-    return ret;
+    return READ_ONCE(max_invoks);
 }
 
 /**
@@ -188,30 +137,29 @@ inline u64 get_monitor_max_invoks(void) {
  * @return int 0 on success, negative error code on failure
  */
 int set_monitor_max_invoks(u64 max) {
-    unsigned long flags;
+    unsigned long minvoks_flags;
+    unsigned long status_flags;
+    bool status;
     int ret;
-#ifdef _RCU_PROTECTED
-    struct max_invoks_wrapper *old_minvoks_ptr, *new_minvoks_ptr;
-#else
-#endif
 
     // Check if the value is changing
-    if(max == get_monitor_max_invoks()) return 0;
-
-#ifdef _RCU_PROTECTED
-    new_minvoks_ptr = kzalloc(sizeof(struct max_invoks_wrapper), GFP_ATOMIC);
-    if (!new_minvoks_ptr) return -ENOMEM;
-#else
-#endif
+    if(unlikely(max == get_monitor_max_invoks())) return 0;
 
     // Write the max_invoks under write lock
-    write_lock_irqsave(&minvoks_lock, flags);
+    write_lock_irqsave(&minvoks_lock, minvoks_flags);
+
+    // Lock status to avoid changes during reset
+    write_lock_irqsave(&status_lock, status_flags);
+
+    status = get_monitor_status();
 
     // Temporarily disable monitoring to avoid inconsistencies
-    ret = set_monitor_status(false);
-    if (ret) {
-        PR_ERROR("Failed to disable monitor status before changing max invoks\n");
-        goto disable_monitor_err;
+    if(status) {
+        ret = __disable_monitoring();
+        if (ret) {
+            PR_ERROR("Failed to disable monitor status before changing max invoks\n");
+            goto disable_monitor_err;
+        }
     }
 
     // Reset stats blocked count
@@ -221,34 +169,23 @@ int set_monitor_max_invoks(u64 max) {
         goto reset_stats_err;
     }
 
-#ifdef _RCU_PROTECTED
-
-    // Prepare new monitor configuration
-    old_minvoks_ptr = rcu_dereference_protected(minvoks_ptr, lockdep_is_held(&minvoks_lock));
-    new_minvoks_ptr->max_invoks = max;
-
-    // Publish new peak pointer
-    rcu_assign_pointer(minvoks_ptr, new_minvoks_ptr);
-
-    // Free old peak after a grace period
-    if (old_minvoks_ptr) kfree_rcu(old_minvoks_ptr, rcu);
-
-#elif defined _SPINLOCK_PROTECTED
-    max_invoks = max;
-#endif
+    WRITE_ONCE(max_invoks, max);
 
 reset_stats_err:
 
     // Restore previous monitor status
-    ret = set_monitor_status(true);
-    if (ret) {
-        PR_ERROR("Failed to restore previous monitor status after changing max invoks\n");
-        goto enable_monitor_err;
+    if(status) {
+        ret = __enable_monitoring();
+        if (ret) {
+            PR_ERROR("Failed to restore previous monitor status after changing max invoks\n");
+            goto enable_monitor_err;
+        }
     }
 
 disable_monitor_err:
 enable_monitor_err:
-    write_unlock_irqrestore(&minvoks_lock, flags);
+    write_unlock_irqrestore(&status_lock, status_flags);
+    write_unlock_irqrestore(&minvoks_lock, minvoks_flags);
 
     return ret;
 }
@@ -260,23 +197,7 @@ enable_monitor_err:
  * @return bool 
  */
 inline bool get_monitor_status(void) {
-    bool ret;
-
-#ifdef _RCU_PROTECTED
-    struct status_wrapper *sptr;
-    rcu_read_lock();
-    sptr = rcu_dereference(status_ptr);
-    if (sptr) ret = sptr->status;
-    else ret = false;
-    rcu_read_unlock();
-#elif defined _SPINLOCK_PROTECTED
-    unsigned long flags;
-    read_lock_irqsave(&status_lock, flags);
-    ret = status;
-    read_unlock_irqrestore(&status_lock, flags);
-#endif
-
-    return ret;
+    return READ_ONCE(status);
 }
 
 /**
@@ -287,22 +208,28 @@ inline bool get_monitor_status(void) {
 static int enable_monitoring(void) {
     unsigned long flags;
     int ret;
-#ifdef _RCU_PROTECTED
-    struct status_wrapper *old_status_ptr, *new_status_ptr;
-
-    new_status_ptr = kzalloc(sizeof(struct status_wrapper), GFP_ATOMIC);
-    if (!new_status_ptr) return -ENOMEM;
-#else
-#endif
 
     // Write the status under write lock
     write_lock_irqsave(&status_lock, flags);
+    ret = __enable_monitoring();    
+    write_unlock_irqrestore(&status_lock, flags);
+
+    return ret;
+}
+
+/**
+ * @brief Internal function to enable monitoring. Assumes status_lock is held.
+ * 
+ * @return int 
+ */
+static int __enable_monitoring(void) {
+    int ret;
 
     // Re-add all hooks
     ret = install_monitored_syscalls_hooks();
     if (ret) {
         PR_ERROR("Failed to add all syscall hooks when enabling monitoring\n");
-        goto install_hook_err;
+        return ret;
     }
 
     // Restart the monitor timer
@@ -312,36 +239,15 @@ static int enable_monitoring(void) {
         goto start_timer_err;
     }
 
-#ifdef _RCU_PROTECTED
+    WRITE_ONCE(status, true);
+    mb();
 
-    // Prepare new monitor configuration
-    old_status_ptr = rcu_dereference_protected(status_ptr, lockdep_is_held(&status_lock));
-    new_status_ptr->status = true;
-
-    // Publish new peak pointer
-    rcu_assign_pointer(status_ptr, new_status_ptr);
-
-    // Free old peak after a grace period
-    if (old_status_ptr) kfree_rcu(old_status_ptr, rcu);
-
-#elif defined _SPINLOCK_PROTECTED
-    status = true;
-#endif
-
-    goto monitoring_enabled;
+    return 0;
 
 start_timer_err:
     // Remove all hooks
     ret = uninstall_active_syscalls_hooks();
-    if (ret) {
-        PR_ERROR("Failed to remove all syscall hooks when disabling monitoring\n");
-        goto uninstall_hook_err;
-    }
-
-install_hook_err:
-uninstall_hook_err:
-monitoring_enabled:
-    write_unlock_irqrestore(&status_lock, flags);
+    if (ret) PR_ERROR("Failed to remove all syscall hooks when disabling monitoring\n");
 
     return ret;
 }
@@ -354,22 +260,28 @@ monitoring_enabled:
 static int disable_monitoring(void) {
     unsigned long flags;
     int ret;
-#ifdef _RCU_PROTECTED
-    struct status_wrapper *old_status_ptr, *new_status_ptr;
-
-    new_status_ptr = kzalloc(sizeof(struct status_wrapper), GFP_ATOMIC);
-    if (!new_status_ptr) return -ENOMEM;
-#else
-#endif
 
     // Write the status under write lock
     write_lock_irqsave(&status_lock, flags);
+    ret = __disable_monitoring();
+    write_unlock_irqrestore(&status_lock, flags);
+
+    return ret;
+}
+
+/**
+ * @brief Internal function to disable monitoring. Assumes status_lock is held.
+ * 
+ * @return int 
+ */
+static int __disable_monitoring(void) {
+    int ret;
 
     // Remove all hooks
     ret = uninstall_active_syscalls_hooks();
     if (ret) {
         PR_ERROR("Failed to remove all syscall hooks when disabling monitoring\n");
-        goto uninstall_hook_err;
+        return ret;
     }
 
     // Stop the monitor timer
@@ -379,43 +291,22 @@ static int disable_monitoring(void) {
         goto stop_timer_err;
     }
 
-#ifdef _RCU_PROTECTED
-
-    // Prepare new monitor configuration
-    old_status_ptr = rcu_dereference_protected(status_ptr, lockdep_is_held(&status_lock));
-    new_status_ptr->status = false;
-
-    // Publish new peak pointer
-    rcu_assign_pointer(status_ptr, new_status_ptr);
-
-    // Free old peak after a grace period
-    if (old_status_ptr) kfree_rcu(old_status_ptr, rcu);
-
-#elif defined _SPINLOCK_PROTECTED
-    status = false;
-#endif
+    WRITE_ONCE(status, false);
+    mb();
 
     // Wake up all waiting threads to avoid deadlocks
     wake_up_all(&syscall_wqueue);
 
-    goto monitoring_disabled;
+    return 0;
 
 stop_timer_err:
 
     // Re-add all hooks
     ret = install_monitored_syscalls_hooks();
-    if (ret) {
-        PR_ERROR("Failed to re-add all syscall hooks when enabling monitoring\n");
-        goto install_hook_err;
-    }
-
-install_hook_err:
-uninstall_hook_err:
-monitoring_disabled:
-    write_unlock_irqrestore(&status_lock, flags);
-
+    if (ret) PR_ERROR("Failed to re-add all syscall hooks when enabling monitoring\n");
+    
     return ret;
-}
+} 
 
 /**
  * @brief Set the monitor status (enabled/disabled)
@@ -427,6 +318,31 @@ inline int set_monitor_status(bool s) {
     if(unlikely(s == get_monitor_status())) return 0;
     PR_DEBUG("Changing monitor status to %s\n", s ? "ENABLED" : "DISABLED");
     return s ? enable_monitoring() : disable_monitoring();
+}
+
+/**
+ * @brief Get the monitor fast unload setting
+ * 
+ * @return true 
+ * @return false 
+ */
+inline bool get_monitor_fast_unload(void) {
+    return READ_ONCE(fast_unload);
+}
+
+int set_monitor_fast_unload(bool fu) {
+    unsigned long flags;
+
+    // Check if the value is changing
+    if(unlikely(fu == get_monitor_fast_unload())) return 0;
+
+    // Write the fast_unload under write lock
+    write_lock_irqsave(&fast_unload_lock, flags);
+    WRITE_ONCE(fast_unload, fu);
+    mb();
+    write_unlock_irqrestore(&fast_unload_lock, flags);
+
+    return 0;
 }
 
 
@@ -467,7 +383,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     atomic_inc(&active_threads);
 
     syscall_idx = (scidx_t) regs->orig_ax;
-    if (syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE) {
+    if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE)) {
         PR_ERROR_PID("Invalid syscall index %d\n", syscall_idx);
         ret = -ENOSYS;
         goto invalid_scidx;
@@ -512,8 +428,8 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     }
 
     // Check if current UID and program is monitored
-    if(!is_uid_monitored(current_uid().val) && !is_prog_monitored(current->comm)) {
-        PR_DEBUG_PID("UID %d and program %s not monitored\n", current_uid().val, current->comm);
+    if(!is_uid_monitored(current_euid().val) && !is_prog_monitored(current->comm)) {
+        PR_DEBUG_PID("UID %d and program %s not monitored\n", current_euid().val, current->comm);
         goto run_syscall;
     }
 
@@ -545,17 +461,22 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
         PR_DEBUG_PID("Woke up from wait queue\n");
 
         if(unloading) {
-            PR_INFO_PID("Module unloading while waiting, running syscall\n");
+            PR_INFO_PID("Module unloading while waiting\n");
+            if(get_monitor_fast_unload()) {
+                PR_INFO_PID("Fast unload enabled\n");
+                ret = -EINTR;
+                goto fast_unload_exit;
+            }
             goto run_syscall;
         }
-
+        
         if(!get_monitor_status()) {
-            PR_INFO_PID("Throttling disabled while waiting, running syscall\n");
+            PR_INFO_PID("Throttling disabled while waiting\n");
             goto run_syscall;
         }
 
         if (ret != 0) {
-            PR_DEBUG_PID("Interrupted by signal, exiting\n");
+            PR_INFO_PID("Interrupted by signal\n");
             goto signal_interrupted;
         }
         
@@ -573,14 +494,17 @@ allow_syscall:
     update_peak_delay(delay_ms, current_uid().val, current->pid, current->comm, syscall_idx);
 
 run_syscall:
+    if(unlikely(unloading)) PR_INFO_PID("Running syscall before module unload\n");
     ret = syscall(regs);
 
+fast_unload_exit:
 signal_interrupted:
 invalid_scidx:
 invalid_original_addr:
 
     // Decrement active threads count and wake up unload wait queue if needed
     if (atomic_dec_and_test(&active_threads)) wake_up(&unload_wqueue);
+    if(unlikely(unloading)) PR_INFO_PID("Exiting syscall wrapper, active threads remaining: %d\n", atomic_read(&active_threads));
 
     return ret;
 

@@ -51,7 +51,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     size_t j;
     int len = 0;
 
-    bool status;
+    bool status, fast_unload;
     u64 max_invoks, cur_invoks;
     u64 peak_blocked, avg_blocked;
     sysc_delayed_t peak_delay;
@@ -75,6 +75,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
     // Get monitor status and limits
     status = get_monitor_status();
+    fast_unload = get_monitor_fast_unload();
     max_invoks = get_monitor_max_invoks();
     cur_invoks = get_curw_invoks();
 
@@ -120,6 +121,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // --- General Status ---
     __SCNPRINTF("========= DEVICE STATUS =========\n");
     __SCNPRINTF("Status: %s\n", status ? "ENABLED" : "DISABLED");
+    __SCNPRINTF("Fast Unload: %s\n", fast_unload ? "ENABLED" : "DISABLED");
     __SCNPRINTF("Max: %llu invocations/s\n", max_invoks);
     __SCNPRINTF("Cur: %llu invocations\n", cur_invoks);
     __SCNPRINTF("Win: %d secs\n", TIMER_INTERVAL_MS / 1000);
@@ -288,6 +290,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         case SCT_IOCTL_GET_STATUS:
             PR_DEBUG("Received command to get monitor status\n");            
             k_status_info.enabled = get_monitor_status() ? 1 : 0;
+            k_status_info.fast_unload = get_monitor_fast_unload() ? 1 : 0;
             k_status_info.max_invoks = get_monitor_max_invoks();
             k_status_info.cur_invoks = get_curw_invoks();
             k_status_info.window_sec = TIMER_INTERVAL_MS / 1000;
@@ -481,6 +484,13 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             PR_DEBUG("Received command to set monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
             set_monitor_status(k_status != 0);
             PR_INFO("Set monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
+            break;
+
+        case SCT_IOCTL_SET_FAST_UNLOAD:
+            if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) return -EFAULT;
+            PR_DEBUG("Received command to set monitor fast unload: %s\n", k_status ? "ENABLED" : "DISABLED");
+            set_monitor_fast_unload(k_status != 0);
+            PR_INFO("Set monitor fast unload: %s\n", k_status ? "ENABLED" : "DISABLED");
             break;
 
         default:

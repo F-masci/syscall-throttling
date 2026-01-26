@@ -6,12 +6,13 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/kprobes.h>
+#include <linux/unistd.h>
 
 #include "fhook.h"
 #include "../../sct.h"
 #include "../../_syst.h"
 
-static unsigned long get_syscall_address(scidx_t);
+static int get_syscall_address(scidx_t, unsigned long *);
 
 #ifdef CONFIG_DYNAMIC_FTRACE_WITH_REGS
     #define FTRACE_REGS_ARG struct ftrace_regs
@@ -33,83 +34,204 @@ static void notrace ftrace_handler(unsigned long ip, unsigned long parent_ip, st
     ftrace_set_ip(regs, hook_addr);
 }
 
+
+/**
+ * @brief Initialize a syscall hook structure for ftrace hooking
+ * 
+ * @param hook Pointer to the hook_syscall_t structure
+ * 
+ * @return int 0 on success, negative error code on failure
+ */
+int init_syscall_fhook(hook_syscall_t * hook) {
+
+    int ret = 0;
+
+    // Check for valid pointer
+    if(!hook) {
+        PR_ERROR("Invalid hook pointer\n");
+        return -EINVAL;
+    }
+
+    // Init hook structure
+    ret = get_syscall_address(hook->syscall_idx, &hook->original_addr);
+    if (ret < 0) {
+        PR_ERROR("Cannot get syscall address for syscall %d\n", hook->syscall_idx);
+        return ret;
+    }
+    hook->fops.func    = ftrace_handler;
+    // hook->fops.flags   = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION | FTRACE_OPS_FL_IPMODIFY;
+    hook->fops.flags   = FTRACE_OPS_FL_RECURSION | FTRACE_OPS_FL_IPMODIFY;
+    hook->fops.private = (void *) hook->hook_addr;
+    PR_DEBUG("Ftrace hook structure set up for syscall %d\n", hook->syscall_idx);
+
+    return 0;
+}
+
 /**
  * @brief Install a syscall hook using ftrace
  * 
- * @param syscall_idx Index of the syscall to hook
- * @param hook_addr Address of the hook function
- * @param ftrace_ops Pointer to the ftrace_ops structure
- * @return unsigned long Original syscall address or error code
+ * @param hook Pointer to the hook_syscall_t structure
+ * 
+ * @return int 0 on success, negative error code on failure
  */
-unsigned long install_syscall_fhook(scidx_t syscall_idx, unsigned long hook_addr, struct ftrace_ops *ftrace_ops) {
+int install_syscall_fhook(hook_syscall_t * hook) {
     
-    unsigned long syscall_addr;
-    int ret;
+    int ret = 0;
 
-    // Get syscall address
-    syscall_addr = get_syscall_address(syscall_idx);
-    if (syscall_addr == (unsigned long) NULL) {
-        PR_ERROR("Cannot find address for syscall %d\n", syscall_idx);
-        return (unsigned long) NULL;
+    // Check for valid pointer
+    if(unlikely(!hook)) {
+        PR_ERROR("Invalid hook pointer\n");
+        return -EINVAL;
     }
-    PR_DEBUG("Syscall %d address found\n", syscall_idx);
-    
-    // Configure ftrace operation
-    ftrace_ops->func    = ftrace_handler;
-    ftrace_ops->flags   = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION | FTRACE_OPS_FL_IPMODIFY;
-    ftrace_ops->private = (void *) hook_addr;
-    PR_DEBUG("Ftrace operation configured for syscall %d\n", syscall_idx);
+
+    PR_DEBUG("Installing ftrace hook for syscall %d at address 0x%lx\n", hook->syscall_idx, hook->original_addr);
 
     // Register ftrace operation
-    ret = ftrace_set_filter_ip(ftrace_ops, syscall_addr, 0, 0);
-    if (ret) {
-        PR_ERROR("ftrace_set_filter_ip failed for syscall %d: %d\n", syscall_idx, ret);
-        return (unsigned long) NULL;
+    ret = ftrace_set_filter_ip(&hook->fops, hook->original_addr, 0, 0);
+    if (ret < 0) {
+        PR_ERROR("Ftrace set filter failed for syscall %d\n", hook->syscall_idx);
+        goto filter_ip_err;
     }
-    PR_DEBUG("Ftrace filter set for syscall %d\n", syscall_idx);
+    PR_DEBUG("Ftrace filter set for syscall %d\n", hook->syscall_idx);
 
     // Register ftrace function
-    ret = register_ftrace_function(ftrace_ops);
-    if (ret) {
-        PR_ERROR("register_ftrace_function failed for syscall %d: %d\n", syscall_idx, ret);
-        ftrace_set_filter_ip(ftrace_ops, syscall_addr, 1, 0);
-        return (unsigned long) NULL;
+    ret = register_ftrace_function(&hook->fops);
+    if (ret < 0) {
+        PR_ERROR("Ftrace register failed for syscall %d\n", hook->syscall_idx);
+        goto ftrace_register_err;
     }
-    PR_DEBUG("Ftrace function registered for syscall %d\n", syscall_idx);
+    PR_DEBUG("Ftrace function registered for syscall %d\n", hook->syscall_idx);
+    
+    hook->active = true;
 
-    return syscall_addr;
+    // Ensure memory operations are completed before proceeding
+    // so that other CPUs see the updated syscall table
+    mb();
+
+    return 0;
+
+ftrace_register_err:
+    ftrace_set_filter_ip(&hook->fops, hook->original_addr, 1, 0);
+
+filter_ip_err:
+    return ret;
 }
 
 /**
  * @brief Uninstall a syscall hook using ftrace
  * 
- * @param syscall_idx Index of the syscall to unhook
- * @param ftrace_ops Pointer to the ftrace_ops structure
- * @return unsigned long Address of the removed hook or error code
+ * @param hook Pointer to the hook_syscall_t structure
+ * 
+ * @return int 0 on success, negative error code on failure
  */
-unsigned long uninstall_syscall_fhook(scidx_t syscall_idx, struct ftrace_ops *ftrace_ops) {
+int uninstall_syscall_fhook(hook_syscall_t * hook) {
 
-    unsigned long hook_addr = (unsigned long) ftrace_ops->private;
-    int ret;
+    int ret = 0;
 
     // Unregister ftrace operation
-    ret = unregister_ftrace_function(ftrace_ops);
-    if (ret) {
-        PR_ERROR("unregister_ftrace_function failed for syscall %d: %d\n", syscall_idx, ret);
-        return (unsigned long) NULL;
+    ret = unregister_ftrace_function(&hook->fops);
+    if (ret < 0) {
+        PR_ERROR("Ftrace unregister failed for syscall %d\n", hook->syscall_idx);
+        return ret;
     }
-    PR_DEBUG("Ftrace function unregistered for syscall %d\n", syscall_idx);
+    PR_DEBUG("Ftrace function unregistered for syscall %d\n", hook->syscall_idx);
 
     // Remove ftrace filter
-    ret = ftrace_set_filter_ip(ftrace_ops, get_syscall_address(syscall_idx), 1, 0);
-    if (ret) {
-        PR_ERROR("ftrace_set_filter_ip removal failed for syscall %d: %d\n", syscall_idx, ret);
-        return (unsigned long) NULL;
+    ret = ftrace_set_filter_ip(&hook->fops, hook->original_addr, 1, 0);
+    if (ret < 0) {
+        PR_ERROR("Ftrace set filter removal failed for syscall %d\n", hook->syscall_idx);
+        return ret;
     }
-    PR_DEBUG("Ftrace filter removed for syscall %d\n", syscall_idx);
+    PR_DEBUG("Ftrace filter removed for syscall %d\n", hook->syscall_idx);
 
-    return hook_addr;
+    return 0;
 }
+
+/**
+ * @brief Get the sys_ni_syscall address
+ * 
+ * @return unsigned long 
+ */
+static inline unsigned long get_sys_ni_syscall_address(void) {
+
+    // Set up kprobe for sys_ni_syscall
+    struct kprobe kp = { .symbol_name = "sys_ni_syscall" };
+    unsigned long addr;
+    int ret;
+
+    // Register kprobe
+    ret = register_kprobe(&kp);
+    if (ret < 0) {
+        PR_ERROR("Failed to find sys_ni_syscall address\n");
+        return ret;
+    }
+    
+    // Get syscall address
+    addr = (unsigned long) kp.addr;
+
+    // Unregister kprobe
+    unregister_kprobe(&kp);
+
+    return addr;
+}
+
+#define SUFFIX_BUF_LEN 16
+#define PREFIX_BUF_LEN 16
+/**
+ * @brief Get the full syscall name by its short name
+ * 
+ * @param buf Buffer to store the full syscall name
+ * @param size Size of the buffer
+ * @param syscall_idx Syscall index
+ * @return int 0 on success, negative error code on failure
+ */
+static inline int __get_syscall_fullname(char *buf, size_t size, scidx_t syscall_idx) {
+    
+    const char *short_name = __get_syscall_name(syscall_idx);
+    char prefix[PREFIX_BUF_LEN] = {0};
+    char suffix[SUFFIX_BUF_LEN] = {0};
+    int ret;
+
+    // Check if syscall name is valid
+    if (unlikely(!short_name)) {
+        PR_ERROR("Syscall name not found for index %d\n", syscall_idx);
+        return -ENOSYS;
+    }
+
+    switch(syscall_idx) {
+        case __NR_pread64:
+        case __NR_pwrite64:
+            snprintf(suffix, SUFFIX_BUF_LEN, "64");
+            break;
+        case __NR_stat:
+            short_name = "newstat";
+            break;
+        case __NR_fstat:
+            short_name = "newfstat";
+            break;
+        case __NR_lstat:
+            short_name = "newlstat";
+            break;
+        case __NR_uname:
+            short_name = "newuname";
+            break;
+        case __NR_umount2:
+            short_name = "umount";
+            break;
+        default:
+            break;
+    }
+
+    ret = snprintf(buf, size, "__x64_sys_%s%s%s", prefix, short_name, suffix);
+    if (ret < 0 || ret >= size) {
+        PR_ERROR("Failed to construct full syscall name for %s\n", short_name);
+        return ret < 0 ? ret : -ENAMETOOLONG;
+    }
+
+    return 0;
+}
+#undef SUFFIX_BUF_LEN
+#undef PREFIX_BUF_LEN
 
 
 #define FNAME_BUF_SIZE 128
@@ -117,26 +239,29 @@ unsigned long uninstall_syscall_fhook(scidx_t syscall_idx, struct ftrace_ops *ft
  * @brief Get the syscall address by its index
  * 
  * @param idx Syscall index
- * @return unsigned long Address of the syscall, or NULL on failure
+ * @param addr Pointer to store the syscall address
+ * 
+ * @return int 0 on success, negative error code on failure
  */
-static unsigned long get_syscall_address(scidx_t idx) {
+static int get_syscall_address(scidx_t idx, unsigned long * addr) {
 
-    const char *short_name = __get_syscall_name(idx);
     char full_name[FNAME_BUF_SIZE];
-
     struct kprobe kp;
-    unsigned long addr;
+    int ret = 0;
 
-    int ret;
-
-    // Check if syscall name is valid
-    if (!short_name) {
-        PR_ERROR("Syscall name not found for index %d\n", idx);
-        return (unsigned long) NULL;
+    // Check for valid pointer
+    if (unlikely(!addr)) {
+        PR_ERROR("Invalid pointer for syscall address output\n");
+        return -EINVAL;
     }
 
     // Construct full syscall name
-    snprintf(full_name, sizeof(full_name), "__x64_sys_%s", short_name);
+    ret = __get_syscall_fullname(full_name, FNAME_BUF_SIZE, idx);
+    if (ret < 0) {
+        PR_WARN("Failed to get full syscall name for index %d\n", idx);
+        goto nil_syscall_addr;
+    }
+    PR_DEBUG("Full syscall name for index %d: %s\n", idx, full_name);
 
     // Setup kprobe
     memset(&kp, 0, sizeof(kp));
@@ -145,18 +270,23 @@ static unsigned long get_syscall_address(scidx_t idx) {
     // Register kprobe
     ret = register_kprobe(&kp);
     if (ret < 0) {
-        PR_ERROR("Failed to register kprobe on %s: %d\n", full_name, ret);
-        return (unsigned long) NULL;
+        PR_WARN("Failed to register kprobe on %s\n", full_name);
+        goto nil_syscall_addr;
     }
     PR_DEBUG("Kprobe registered for %s\n", full_name);
     
     // Get syscall address
-    addr = (unsigned long) kp.addr;
+    *addr = (unsigned long) kp.addr;
     
     // Unregister kprobe
     unregister_kprobe(&kp);
     PR_DEBUG("Kprobe unregistered for %s\n", full_name);
-    
-    return addr;
+
+    return 0;
+
+nil_syscall_addr:
+    PR_WARN("Using sys_ni_syscall for index %d\n", idx);
+    *addr = get_sys_ni_syscall_address();
+    return 0;
 }
 #undef FNAME_BUF_SIZE

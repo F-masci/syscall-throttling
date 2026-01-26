@@ -3,6 +3,7 @@
 #include "sct.h"
 
 int setup_monitor_stats(void);
+void cleanup_monitor_stats(void);
 
 void get_peak_delayed_syscall(sysc_delayed_t *);
 bool update_peak_delay(s64, uid_t, pid_t, const char *, scidx_t);

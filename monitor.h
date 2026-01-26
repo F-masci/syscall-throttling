@@ -14,6 +14,9 @@ int set_monitor_max_invoks(u64);
 inline bool get_monitor_status(void);
 inline int set_monitor_status(bool);
 
+inline bool get_monitor_fast_unload(void);
+int set_monitor_fast_unload(bool);
+
 inline void wake_monitor_queue(void);
 
 asmlinkage long syscall_wrapper(struct pt_regs *);

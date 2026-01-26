@@ -1,3 +1,7 @@
+#ifndef _DISCOVER_HOOKING
+#define _DISCOVER_HOOKING
+#endif
+
 int setup_discover_hook(void);
 void cleanup_discover_hook(void);
 

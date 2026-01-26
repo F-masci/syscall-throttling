@@ -10,12 +10,17 @@ typedef int scidx_t;
     #include <linux/sched.h>
 
     typedef struct {
+        scidx_t syscall_idx;
         bool active;
         unsigned long original_addr;
+        unsigned long hook_addr;
+#ifdef _FTRACE_HOOKING
         // ftrace mode
-        struct kprobe *kp;
         struct ftrace_ops fops;
-        // discover mode - no additional fields needed
+#elif defined(_DISCOVER_HOOKING)
+        // discover mode
+        // (no additional fields needed)
+#endif
     } hook_syscall_t;
 
     // For historical statistics
@@ -56,6 +61,7 @@ typedef struct {
 // Monitor status structure
 typedef struct {
     int enabled;
+    int fast_unload;
     u64 max_invoks;
     u64 cur_invoks;
     u64 window_sec;

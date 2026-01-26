@@ -24,6 +24,7 @@ typedef enum {
     ACTION_REMOVE,
     ACTION_SET_LIMIT,
     ACTION_SET_STATUS,
+    ACTION_SET_FAST_UNLOAD,
     ACTION_GET_STATUS,
     ACTION_GET_STATS,
     ACTION_GET_PEAK_DELAY,
@@ -63,7 +64,8 @@ void print_usage(const char *prog_name) {
     printf("  add              Adds a monitoring rule (requires --sys, --uid, or --prog)\n");
     printf("  remove           Removes a monitoring rule (requires --sys, --uid, or --prog)\n");
     printf("  limit            Set the max syscall invocations limit (requires --val)\n");
-    printf("  status           Set the monitor status 1=ON, 0=OFF (requires --val)\n\n");
+    printf("  status           Set the monitor status 1=ON, 0=OFF (requires --val)\n");
+    printf("  fast-unload      Set the fast unload status 1=ON, 0=OFF (requires --val)\n\n");
 
     printf("Reading Commands:\n");
     printf("  get-status       Get general monitor status\n");
@@ -75,7 +77,7 @@ void print_usage(const char *prog_name) {
     printf("  --sys <nr>       Specifies the system call number\n");
     printf("  --uid <id>       Specifies the User ID\n");
     printf("  --prog <name>    Specifies the process name\n");
-    printf("  --val <num>      Specifies a numeric value (for limit/status)\n");
+    printf("  --val <num>      Specifies a numeric value (for limit/status/fast-unload)\n");
     printf("  --dev <path>     Specifies the device path (Default: %s)\n", DEFAULT_DEVICE);
     printf("  -h, --help       Show this help message\n\n");
     
@@ -83,6 +85,8 @@ void print_usage(const char *prog_name) {
     printf("  %s add --sys 59\n", prog_name);
     printf("  %s limit --val 100\n", prog_name);
     printf("  %s add --prog mkdir\n", prog_name);
+    printf("  %s get-list --uid\n", prog_name);
+    printf("  %s fast-unload --val 0\n", prog_name);
 }
 
 // Helper function to handle list retrieval with dynamic reallocation
@@ -214,6 +218,8 @@ int main(int argc, char **argv) {
             cfg.action = ACTION_SET_LIMIT;
         } else if (strcmp(argv[optind], "status") == 0) {
             cfg.action = ACTION_SET_STATUS;
+        } else if (strcmp(argv[optind], "fast-unload") == 0) {
+            cfg.action = ACTION_SET_FAST_UNLOAD;
         } else if (strcmp(argv[optind], "get-status") == 0) {
             cfg.action = ACTION_GET_STATUS;
         } else if (strcmp(argv[optind], "get-stats") == 0) {
@@ -254,10 +260,10 @@ int main(int argc, char **argv) {
             return INVALID_ARGUMENTS_ERROR;
         }
     }
-    else if (cfg.action == ACTION_SET_LIMIT || cfg.action == ACTION_SET_STATUS) {
-        // Limit/Status require a generic numeric value
+    else if (cfg.action == ACTION_SET_LIMIT || cfg.action == ACTION_SET_STATUS || cfg.action == ACTION_SET_FAST_UNLOAD) {
+        // Limit/Status/Fast Unload require a generic numeric value
         if (cfg.target_type != TARGET_GENERIC_VAL) {
-            fprintf(stderr, "Error: For limit/status you must specify --val <number>.\n");
+            fprintf(stderr, "Error: For limit/status/fast-unload you must specify --val <number>.\n");
             return INVALID_ARGUMENTS_ERROR;
         }
         
@@ -325,6 +331,12 @@ int main(int argc, char **argv) {
             printf("[Client] Setting status to: %s\n", cfg.value.status ? "ON" : "OFF");
             break;
 
+        case ACTION_SET_FAST_UNLOAD:
+            req = SCT_IOCTL_SET_FAST_UNLOAD;
+            arg_ptr = &cfg.value.status;
+            printf("[Client] Setting fast unload to: %s\n", cfg.value.status ? "ON" : "OFF");
+            break;
+
         /* --- READ OPERATIONS --- */
         case ACTION_GET_STATUS:
             req = SCT_IOCTL_GET_STATUS;
@@ -364,10 +376,11 @@ int main(int argc, char **argv) {
     switch (cfg.action) {
         case ACTION_GET_STATUS:
             printf("========= MONITOR STATUS =========\n");
-            printf("Enabled:    %s\n", status_info.enabled ? "YES" : "NO");
-            printf("Max Invoks: %lu\n", status_info.max_invoks);
-            printf("Cur Invoks: %lu\n", status_info.cur_invoks);
-            printf("Window:     %lu sec\n", status_info.window_sec);
+            printf("Enabled:     %s\n", status_info.enabled ? "YES" : "NO");
+            printf("Fast Unload: %s\n", status_info.fast_unload ? "YES" : "NO");
+            printf("Max Invoks:  %lu\n", status_info.max_invoks);
+            printf("Cur Invoks:  %lu\n", status_info.cur_invoks);
+            printf("Window:      %lu sec\n", status_info.window_sec);
             printf("==================================\n");
             break;
 

@@ -1,3 +1,5 @@
+#include <asm/barrier.h>
+
 #include "disc.h"
 #include "sthack.h"
 
@@ -5,70 +7,128 @@
 #include "../../sct.h"
 
 /**
- * @brief Install a syscall hook using discover
+ * @brief Initialize a syscall hook structure for discover hooking
  * 
- * @param syscall_idx Syscall number to hook
- * @param hook_addr Address of the hook function
- * @return unsigned long Original syscall address
+ * @param hook Pointer to the hook_syscall_t structure
+ * 
+ * @return int 0 on success, negative error code on failure
  */
-unsigned long install_syscall_dhook(scidx_t syscall_idx, unsigned long hook_addr) {
-    
+int init_syscall_dhook(hook_syscall_t * hook) {
+
     unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
-    unsigned long * original_syscall_addrs = get_original_syscall_addrs();
+
+    // Check for valid pointer
+    if(unlikely(!hook)) {
+        PR_ERROR("Invalid hook pointer\n");
+        return -EINVAL;
+    }
 
     // Basic safety check
-    if (!hacked_syscall_tbl) {
+    if (unlikely(!hacked_syscall_tbl)) {
         PR_ERROR("Syscall table not found\n");
-        return (unsigned long) NULL;
+        return -EINVAL;
+    }
+
+    // Init hook structure
+    hook->original_addr = (unsigned long) hacked_syscall_tbl[hook->syscall_idx];
+    PR_DEBUG("Discover hook structure set up for syscall %d\n", hook->syscall_idx);
+
+    return 0;
+}
+
+/**
+ * @brief Install a syscall hook using discover
+ * 
+ * @param hook Pointer to the hook_syscall_t structure
+ * 
+ * @return int 0 on success, negative error code on failure
+ */
+int install_syscall_dhook(hook_syscall_t * hook) {
+    
+    unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
+    // unsigned long * original_syscall_addrs = get_original_syscall_addrs();
+
+    // Check for valid pointer
+    if(unlikely(!hook)) {
+        PR_ERROR("Invalid hook pointer\n");
+        return -EINVAL;
+    }
+
+    // Basic safety check
+    if (unlikely(!hacked_syscall_tbl)) {
+        PR_ERROR("Syscall table not found\n");
+        return -EINVAL;
     }
 
     begin_syscall_table_hack();
-    PR_DEBUG("Syscall table hacking started for syscall %d\n", syscall_idx);
+    PR_DEBUG("Syscall table hacking started for syscall %d\n", hook->syscall_idx);
 
     // Save the original syscall address (done only once at startup)
 	// original_syscall_addrs[syscall_idx] = (unsigned long)hacked_syscall_tbl[syscall_idx];
 
     // Install the hook
-    hacked_syscall_tbl[syscall_idx] = (unsigned long *) hook_addr;
+    hacked_syscall_tbl[hook->syscall_idx] = (unsigned long *) hook->hook_addr;
 
     end_syscall_table_hack();
-    PR_DEBUG("Syscall table hacking ended for syscall %d\n", syscall_idx);
+    PR_DEBUG("Syscall table hacking ended for syscall %d\n", hook->syscall_idx);
 
-    PR_INFO("Hook installed on syscall %d.\n", syscall_idx);
-    return original_syscall_addrs[syscall_idx];
+    hook->active = true;
+
+    // Ensure memory operations are completed before proceeding
+    // so that other CPUs see the updated syscall table
+    mb();
+
+    return 0;
 }
 
 /**
  * @brief Remove a syscall hook using discover
  * 
- * @param syscall_idx Syscall number to unhook
- * @return unsigned long Address of the removed hook
+ * @param hook Pointer to the hook_syscall_t structure
+ * 
+ * @return int 0 on success, negative error code on failure
  */
-unsigned long uninstall_syscall_dhook(int syscall_idx) {
+int uninstall_syscall_dhook(hook_syscall_t * hook) {
 
     unsigned long hook_addr;
 
     unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
-    unsigned long * original_syscall_addrs = get_original_syscall_addrs();
+
+    // Check for valid pointer
+    if(unlikely(!hook)) {
+        PR_ERROR("Invalid hook pointer\n");
+        return -EINVAL;
+    }
 
 	// Basic safety check
-    if (!hacked_syscall_tbl || !hacked_syscall_tbl[syscall_idx] || !original_syscall_addrs || !original_syscall_addrs[syscall_idx]) {
-		PR_ERROR("Invalid state for syscall %d.\n", syscall_idx);
-		return (unsigned long) NULL;
+    if (unlikely(!hacked_syscall_tbl || !hacked_syscall_tbl[hook->syscall_idx] || !hook->original_addr)) {
+		PR_ERROR("Invalid state for syscall %d.\n", hook->syscall_idx);
+		return -EINVAL;
 	}
 
     // Get the current hook address
-	hook_addr = (unsigned long) hacked_syscall_tbl[syscall_idx];
+	hook_addr = (unsigned long) hacked_syscall_tbl[hook->syscall_idx];
+
+    // Check if the hook is currently installed
+    if (unlikely(!hook->active || hook_addr != hook->hook_addr)) {
+        PR_ERROR("No hook installed for syscall %d.\n", hook->syscall_idx);
+        return -EINVAL;
+    }
 
     begin_syscall_table_hack();
-    PR_DEBUG("Syscall table hacking started for syscall %d\n", syscall_idx);
+    PR_DEBUG("Syscall table hacking started for syscall %d\n", hook->syscall_idx);
 
     // Restore the original syscall address
-    hacked_syscall_tbl[syscall_idx] = (unsigned long *) original_syscall_addrs[syscall_idx];
+    hacked_syscall_tbl[hook->syscall_idx] = (unsigned long *) hook->original_addr;
 
     end_syscall_table_hack();
-    PR_DEBUG("Syscall table hacking ended for syscall %d\n", syscall_idx);
+    PR_DEBUG("Syscall table hacking ended for syscall %d\n", hook->syscall_idx);
     
-    PR_INFO("Hook removed from syscall %d.\n", syscall_idx);
-	return hook_addr;
+    hook->active = false;
+
+    // Ensure memory operations are completed before proceeding
+    // so that other CPUs see the updated syscall table
+    mb();
+
+	return 0;
 }

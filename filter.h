@@ -26,7 +26,7 @@ void cleanup_monitor_filter(void);
 size_t get_syscall_monitor_num(void);
 size_t get_syscall_monitor_vals(scidx_t *, size_t);
 
-bool is_syscall_monitored(scidx_t);
+inline bool is_syscall_monitored(scidx_t);
 void add_syscall_monitoring(scidx_t);
 void remove_syscall_monitoring(scidx_t);
 
@@ -35,7 +35,7 @@ void remove_syscall_monitoring(scidx_t);
 size_t get_uid_monitor_num(void);
 size_t get_uid_monitor_vals(uid_t *, size_t);
 
-bool is_uid_monitored(uid_t);
+inline bool is_uid_monitored(uid_t);
 int add_uid_monitoring(uid_t);
 int remove_uid_monitoring(uid_t);
 
@@ -44,6 +44,6 @@ int remove_uid_monitoring(uid_t);
 size_t get_prog_monitor_num(void);
 size_t get_prog_monitor_vals(char **, size_t);
 
-bool is_prog_monitored(const char *);
+inline bool is_prog_monitored(const char *);
 int add_prog_monitoring(const char *);
 int remove_prog_monitoring(const char *);

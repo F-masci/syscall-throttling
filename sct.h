@@ -45,19 +45,20 @@
 
 #define MODULE_NAME "SCT"
 
-#define DEFAULT_STATUS true
-#define DEFAULT_MAX_INVOKS 5
+#define DEFAULT_STATUS      true
+#define DEFAULT_FAST_UNLOAD true
+#define DEFAULT_MAX_INVOKS  5
 
 #define PR_DEBUG(fmt, ...) pr_debug("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
-#define PR_DEBUG_PID(fmt, ...) PR_DEBUG("[%d] " fmt, current->pid, ##__VA_ARGS__)
+#define PR_DEBUG_PID(fmt, ...) PR_DEBUG("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)
 
 #define PR_INFO(fmt, ...) pr_info("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
-#define PR_INFO_PID(fmt, ...) PR_INFO("[%d] " fmt, current->pid, ##__VA_ARGS__)
+#define PR_INFO_PID(fmt, ...) PR_INFO("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)
 
 #define PR_WARN(fmt, ...) pr_warn("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
-#define PR_WARN_PID(fmt, ...) PR_WARN("[%d] " fmt, current->pid, ##__VA_ARGS__)
+#define PR_WARN_PID(fmt, ...) PR_WARN("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)
 
 #define PR_ERROR(fmt, ...) pr_err("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
-#define PR_ERROR_PID(fmt, ...) PR_ERROR("[%d] " fmt, current->pid, ##__VA_ARGS__)
+#define PR_ERROR_PID(fmt, ...) PR_ERROR("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)
 
 #define MAX_ITEMS 1024

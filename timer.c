@@ -30,11 +30,13 @@ static struct timer_list timer;
  */
 void monitor_timer_callback(struct timer_list *t) {
 
+    u64 old_invoks;
+
     PR_DEBUG("Monitor timer callback triggered\n");
 
     // Reset invocation count
-    reset_curw_invoks();
-    PR_DEBUG("Reset syscall invocation count to 0\n");
+    old_invoks = reset_curw_invoks();
+    PR_INFO("Reset syscall invocation count to 0 (previously %llu)\n", old_invoks);
 
     // Reset statistics for the new interval
     compres_wstats_blocked();

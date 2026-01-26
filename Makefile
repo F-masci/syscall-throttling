@@ -37,7 +37,7 @@ ifneq ($(KERNELRELEASE),)
         ccflags-y 		 += -DFTRACE_HOOKING -I$(src)/$(HFTRACE_DIR)
 	else
 		$(MODULE_NAME)-y += $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o
-		ccflags-y 		 += -I$(src)/$(HDISC_DIR) -I$(src)/$(HDISC_DIR)/lib
+		ccflags-y 		 += -DDISCOVER_HOOKING -I$(src)/$(HDISC_DIR) -I$(src)/$(HDISC_DIR)/lib
     endif
 
 # --- SEZIONE USERSPACE ---

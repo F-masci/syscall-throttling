@@ -1,4 +1,9 @@
+#ifndef _DISCOVER_HOOKING
+#define _DISCOVER_HOOKING
+#endif
+
 #include "../../types.h"
 
-unsigned long install_syscall_dhook(scidx_t, unsigned long);
-unsigned long uninstall_syscall_dhook(scidx_t);
+int init_syscall_dhook(hook_syscall_t *);
+int install_syscall_dhook(hook_syscall_t *);
+int uninstall_syscall_dhook(hook_syscall_t *);

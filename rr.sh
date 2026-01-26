@@ -1,4 +1,4 @@
 make unload
-make clean
+# make clean
 make
 make load
