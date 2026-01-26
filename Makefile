@@ -8,7 +8,7 @@ HFTRACE_DIR := hook/ftrace
 #
 # 1 = Enable FTRACE hooking
 # 0 = Enable DISCOVER hooking
-ENABLE_FTRACE := 0
+ENABLE_FTRACE := 1
 
 # Set to SPINLOCK_PROTECTED to use spinlocks as synchronization method
 # Set to RCU_PROTECTED to use RCU as synchronization method (default)

@@ -19,6 +19,7 @@
 #include "filter.h"
 
 #ifdef _FTRACE_HOOKING
+#include <linux/mutex.h>
 #include "hook/ftrace/fhook.h"
 #elif defined(_DISCOVER_HOOKING)
 #include "hook/discover/disc.h"
@@ -28,7 +29,11 @@
 static hook_syscall_t * syscall_hooks;
 static size_t syscall_hooks_num = 0;
 
+#ifdef _FTRACE_HOOKING
+static DEFINE_MUTEX(hook_mutex);
+#elif defined(_DISCOVER_HOOKING)
 static DEFINE_SPINLOCK(hook_lock); 
+#endif
 
 static inline scidx_t scidx_sanity_check(scidx_t idx) {
     if(unlikely(idx < 0 || idx >= syscall_hooks_num)) {
@@ -132,6 +137,7 @@ void cleanup_syscall_hooks(void) {
     if(uninstall_active_syscalls_hooks() < 0) {
         PR_ERROR("Failed to uninstall all active syscall hooks during cleanup\n");
     }
+    PR_DEBUG("All active syscall hooks uninstalled\n");
 
     // Free syscall hooks data structure
     kfree(syscall_hooks);
@@ -154,8 +160,10 @@ void cleanup_syscall_hooks(void) {
  * @return int 0 on success, negative error code on failure
  */
 int install_syscall_hook(scidx_t syscall_idx) {
-    
+#ifdef _FTRACE_HOOKING
+#elif defined(_DISCOVER_HOOKING)
     unsigned long flags;
+#endif
     hook_syscall_t * hook;
     int ret = 0;
 
@@ -163,7 +171,11 @@ int install_syscall_hook(scidx_t syscall_idx) {
     syscall_idx = scidx_sanity_check(syscall_idx);
     if(syscall_idx < 0) return -ENOSYS;
 
+#ifdef _FTRACE_HOOKING
+    mutex_lock(&hook_mutex);
+#elif defined(_DISCOVER_HOOKING)
     spin_lock_irqsave(&hook_lock, flags);
+#endif
 
     // Check if already hooked
     hook = &syscall_hooks[syscall_idx];
@@ -191,7 +203,11 @@ int install_syscall_hook(scidx_t syscall_idx) {
 installation_hook_err:
 installed_hook:
 
+#ifdef _FTRACE_HOOKING
+    mutex_unlock(&hook_mutex);
+#elif defined(_DISCOVER_HOOKING)
     spin_unlock_irqrestore(&hook_lock, flags);
+#endif
 
     return ret;
 }
@@ -263,8 +279,10 @@ inline unsigned long get_original_syscall_address(scidx_t syscall_idx) {
  * @return int 0 on success, negative error code on failure
  */
 int uninstall_syscall_hook(scidx_t syscall_idx) {
-
+#ifdef _FTRACE_HOOKING
+#elif defined(_DISCOVER_HOOKING)
     unsigned long flags;
+#endif
     hook_syscall_t * hook;
     int ret = 0;
 
@@ -272,7 +290,11 @@ int uninstall_syscall_hook(scidx_t syscall_idx) {
     syscall_idx = scidx_sanity_check(syscall_idx);
     if(syscall_idx < 0) return -ENOSYS;
 
+#ifdef _FTRACE_HOOKING
+    mutex_lock(&hook_mutex);
+#elif defined(_DISCOVER_HOOKING)
     spin_lock_irqsave(&hook_lock, flags);
+#endif
 
     // Check if hook is active
     hook = &syscall_hooks[syscall_idx];
@@ -308,7 +330,11 @@ int uninstall_syscall_hook(scidx_t syscall_idx) {
 uninstallation_hook_err:
 uninstalled_hook:
 
+#ifdef _FTRACE_HOOKING
+    mutex_unlock(&hook_mutex);
+#elif defined(_DISCOVER_HOOKING)
     spin_unlock_irqrestore(&hook_lock, flags);
+#endif
 
     return ret;
 }
@@ -324,14 +350,18 @@ int uninstall_active_syscalls_hooks(void) {
 
     // Uninstall active hooks
     PR_DEBUG("Uninstalling all active syscall hooks...\n");
-    for(size_t i = 0; i < syscall_hooks_num; i++) {
+    for(scidx_t i = 0; i < syscall_hooks_num; i++) {
+
+        // Check if hook is active
         if(syscall_hooks[i].active) {
-            PR_DEBUG("Uninstalling active hook on syscall %zu\n", i);
-            ret = uninstall_syscall_hook((scidx_t) i);
+
+            PR_DEBUG("Uninstalling active hook on syscall %d\n", i);
+            ret = uninstall_syscall_hook(i);
             if(ret < 0) {
-                PR_ERROR("Failed to uninstall syscall hook on syscall %zu\n", i);
+                PR_ERROR("Failed to uninstall syscall hook on syscall %d\n", i);
                 return ret;
             }
+
         }
     }
 
