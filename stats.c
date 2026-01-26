@@ -305,12 +305,12 @@ u64 compres_wstats_blocked(void) {
 #elif defined _SPINLOCK_PROTECTED
 
     // Update peak blocked threads if current is greater
-    if (curr_blocked > max_blocked_threads)
-        max_blocked_threads = curr_blocked;
+    if (curr_blocked > wstats.max_blocked_threads)
+        wstats.max_blocked_threads = curr_blocked;
 
     // Update sum and window count for average calculation
-    sum_blocked_threads += curr_blocked;
-    total_windows_count++;
+    wstats.sum_blocked_threads += curr_blocked;
+    wstats.total_windows_count++;
 
 #endif
 
@@ -337,7 +337,7 @@ u64 get_peakw_blocked(void) {
 #elif defined _SPINLOCK_PROTECTED
     unsigned long flags;
     read_lock_irqsave(&stats_lock, flags);
-    ret = wstats.max_blocked;
+    ret = wstats.max_blocked_threads;
     read_unlock_irqrestore(&stats_lock, flags);
 #endif
 
@@ -371,8 +371,8 @@ u64 get_avgw_blocked(u64 scale) {
 
 #elif defined _SPINLOCK_PROTECTED
     read_lock_irqsave(&stats_lock, flags);
-    sum = wstats.sum_blocked;
-    count = wstats.total_windows;
+    sum = wstats.sum_blocked_threads;
+    count = wstats.total_windows_count;
     read_unlock_irqrestore(&stats_lock, flags);
 #endif
 
@@ -425,13 +425,13 @@ void get_stats_blocked(u64 *peak_blocked, u64 *avg_blocked, u64 scale) {
 #elif defined _SPINLOCK_PROTECTED
     read_lock_irqsave(&stats_lock, flags);
     if (peak_blocked)
-        *peak_blocked = wstats.max_blocked;
+        *peak_blocked = wstats.max_blocked_threads;
 
     if (avg_blocked) {
-        if (wstats.total_windows == 0)
+        if (wstats.total_windows_count == 0)
             *avg_blocked = 0;
         else
-            *avg_blocked = (wstats.sum_blocked * scale) / wstats.total_windows;
+            *avg_blocked = (wstats.sum_blocked_threads * scale) / wstats.total_windows_count;
     }
     read_unlock_irqrestore(&stats_lock, flags);
 #endif

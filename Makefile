@@ -49,6 +49,16 @@ else
 all:
 
 	@echo "=== Compile main module: $(MODULE_NAME) ==="
+	@echo "Using synchronization method: $(SYNC_METHOD)"
+	@if [ "$(ENABLE_FTRACE)" -eq "1" ]; then \
+		echo "Using FTRACE hooking method"; \
+	else \
+		echo "Using DISCOVER hooking method"; \
+	fi
+	@echo "Building against kernel: $(shell uname -r)"
+	@echo "Kernel build directory: $(KDIR)"
+	@echo "Output directory: $(OUT_DIR)"
+	@echo "----------------------------------------"
 	$(MAKE) -C $(KDIR) M=$(PWD)
 
 	@mkdir -p $(OUT_DIR)

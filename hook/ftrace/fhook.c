@@ -142,14 +142,14 @@ int install_syscall_fhook(hook_syscall_t * hook) {
 
     // Check for nil syscall
     if (unlikely(hook->nil_syscall)) {
-        PR_WARN("Cannot hook syscall %d as it is a nil syscall\n", hook->syscall_idx);
+        PR_WARN("Skip hook of syscall %d as it is a nil syscall\n", hook->syscall_idx);
         return 0;
     }
 
     // Register ftrace operation
     ret = ftrace_set_filter_ip(&hook->fops, hook->original_addr, 0, 0);
     if (ret < 0) {
-        PR_ERROR("Ftrace set filter failed for syscall %d\n", hook->syscall_idx);
+        PR_ERROR("Ftrace set filter failed for syscall %d: %d\n", hook->syscall_idx, ret);
         goto filter_ip_err;
     }
     PR_DEBUG("Ftrace filter set for syscall %d\n", hook->syscall_idx);
@@ -157,7 +157,7 @@ int install_syscall_fhook(hook_syscall_t * hook) {
     // Register ftrace function
     ret = register_ftrace_function(&hook->fops);
     if (ret < 0) {
-        PR_ERROR("Ftrace register failed for syscall %d\n", hook->syscall_idx);
+        PR_ERROR("Ftrace register failed for syscall %d: %d\n", hook->syscall_idx, ret);
         goto ftrace_register_err;
     }
     PR_DEBUG("Ftrace function registered for syscall %d\n", hook->syscall_idx);
@@ -196,20 +196,20 @@ int uninstall_syscall_fhook(hook_syscall_t * hook) {
 
     // Check if hook is active
     if (unlikely(!hook->active)) {
-        PR_WARN("Hook for syscall %d is not active\n", hook->syscall_idx);
+        PR_ERROR("Hook for syscall %d is not active\n", hook->syscall_idx);
         return -EINVAL;
     }
 
     // Check for nil syscall
     if (unlikely(hook->nil_syscall)) {
-        PR_WARN("Cannot unhook syscall %d as it is a nil syscall\n", hook->syscall_idx);
+        PR_WARN("Skip unhook of syscall %d as it is a nil syscall\n", hook->syscall_idx);
         return 0;
     }
 
     // Unregister ftrace operation
     ret = unregister_ftrace_function(&hook->fops);
     if (ret < 0) {
-        PR_ERROR("Ftrace unregister failed for syscall %d\n", hook->syscall_idx);
+        PR_ERROR("Ftrace unregister failed for syscall %d: %d\n", hook->syscall_idx, ret);
         return ret;
     }
     PR_DEBUG("Ftrace function unregistered for syscall %d\n", hook->syscall_idx);
@@ -217,7 +217,7 @@ int uninstall_syscall_fhook(hook_syscall_t * hook) {
     // Remove ftrace filter
     ret = ftrace_set_filter_ip(&hook->fops, hook->original_addr, 1, 0);
     if (ret < 0) {
-        PR_ERROR("Ftrace set filter removal failed for syscall %d\n", hook->syscall_idx);
+        PR_ERROR("Ftrace set filter removal failed for syscall %d: %d\n", hook->syscall_idx, ret);
         return ret;
     }
     PR_DEBUG("Ftrace filter removed for syscall %d\n", hook->syscall_idx);

@@ -44,6 +44,10 @@ int init_syscall_dhook(hook_syscall_t * hook) {
 
     // Init hook structure
     hook->original_addr = (unsigned long) hacked_syscall_tbl[hook->syscall_idx];
+    if(!hook->original_addr) {
+        PR_WARN("Original syscall address is NULL for syscall %d\n", hook->syscall_idx);
+        hook->nil_syscall = true;
+    }
     PR_DEBUG("Discover hook structure set up for syscall %d\n", hook->syscall_idx);
 
     return 0;
@@ -71,6 +75,12 @@ int install_syscall_dhook(hook_syscall_t * hook) {
     if (unlikely(hook->active)) {
         PR_ERROR("Hook for syscall %d is already active\n", hook->syscall_idx);
         return -EINVAL;
+    }
+
+    // Check for nil syscall
+    if (unlikely(hook->nil_syscall)) {
+        PR_WARN("Skip hook of syscall %d as it is a nil syscall\n", hook->syscall_idx);
+        return 0;
     }
 
     // Basic safety check
@@ -119,8 +129,14 @@ int uninstall_syscall_dhook(hook_syscall_t * hook) {
         return -EINVAL;
     }
 
+    // Check for nil syscall
+    if (unlikely(hook->nil_syscall)) {
+        PR_WARN("Skip unhook of syscall %d as it is a nil syscall\n", hook->syscall_idx);
+        return 0;
+    }
+
 	// Basic safety check
-    if (unlikely(!hacked_syscall_tbl || !hacked_syscall_tbl[hook->syscall_idx] || !hook->original_addr)) {
+    if (unlikely(!hacked_syscall_tbl || !hook->original_addr)) {
 		PR_ERROR("Invalid state for syscall %d.\n", hook->syscall_idx);
 		return -EINVAL;
 	}

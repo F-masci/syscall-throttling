@@ -12,12 +12,12 @@ typedef int scidx_t;
     typedef struct {
         scidx_t syscall_idx;
         bool active;
+        bool nil_syscall;
         unsigned long original_addr;
         unsigned long hook_addr;
 #ifdef _FTRACE_HOOKING
         // ftrace mode
         struct ftrace_ops fops;
-        bool nil_syscall;
 #elif defined(_DISCOVER_HOOKING)
         // discover mode
         // (no additional fields needed)

@@ -99,11 +99,17 @@ static inline int __get_syscall_fullname(char *buf, size_t size, scidx_t syscall
         case __NR_umount2:
             short_name = "umount";
             break;
+        case __NR_perf_event_open:
+            PR_WARN("Redirecting perf_event_open tracing to internal function security_perf_event_open\n");
+            ret = snprintf(buf, size, "security_perf_event_open");
+            goto fullname_found;
         default:
             break;
     }
 
     ret = snprintf(buf, size, "__x64_sys_%s%s%s", prefix, short_name, suffix);
+
+fullname_found:
     if (ret < 0 || ret >= size) {
         PR_ERROR("Failed to construct full syscall name for %s\n", short_name);
         return ret < 0 ? ret : -ENAMETOOLONG;

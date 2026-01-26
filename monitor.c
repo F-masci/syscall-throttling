@@ -482,13 +482,13 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     
     // Check if throttling is enabled
     if(unlikely(!get_monitor_status())) {
-        PR_WARN_PID("Throttling disabled, running syscall\n");
+        PR_DEBUG_PID("Throttling disabled, running syscall\n");
         goto run_syscall;
     }
 
     // Check if had to be monitored
     if(unlikely(!is_syscall_monitored(syscall_idx))) {
-        PR_WARN_PID("Syscall %d not monitored\n", syscall_idx);
+        PR_DEBUG_PID("Syscall %d not monitored\n", syscall_idx);
         goto run_syscall;
     }
 
@@ -536,12 +536,12 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
         }
         
         if(!get_monitor_status()) {
-            PR_INFO_PID("Throttling disabled while waiting\n");
+            PR_DEBUG_PID("Throttling disabled while waiting\n");
             goto run_syscall;
         }
 
         if (ret != 0) {
-            PR_INFO_PID("Interrupted by signal\n");
+            PR_DEBUG_PID("Interrupted by signal\n");
             goto signal_interrupted;
         }
         

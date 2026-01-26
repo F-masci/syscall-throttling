@@ -145,6 +145,7 @@ void cleanup_syscall_hooks(void) {
 
     // Cleanup hooking method
 #ifdef _FTRACE_HOOKING
+    cleanup_ftrace_hook();
     PR_DEBUG("Ftrace hooking mode cleaned up\n");
 #elif defined(_DISCOVER_HOOKING)
     cleanup_discover_hook();
