@@ -177,7 +177,7 @@ static void __exit sct_exit(void) {
     cleanup_monitor_stats();
     PR_INFO("Statistics structures cleaned up successfully\n");
 
-    printk(KERN_INFO "%s: Module unloaded\n", MODULE_NAME);
+    PR_INFO("Module unloaded\n");
 
 }
 

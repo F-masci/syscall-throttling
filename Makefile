@@ -8,7 +8,7 @@ HFTRACE_DIR := hook/ftrace
 #
 # 1 = Enable FTRACE hooking
 # 0 = Enable DISCOVER hooking
-ENABLE_FTRACE := 1
+ENABLE_FTRACE := 0
 
 # Set to SPINLOCK_PROTECTED to use spinlocks as synchronization method
 # Set to RCU_PROTECTED to use RCU as synchronization method (default)
@@ -33,7 +33,7 @@ ifneq ($(KERNELRELEASE),)
 	ccflags-y := -std=gnu11 $(DBG_DEFINE) -D$(SYNC_METHOD)
 
 	ifeq ($(ENABLE_FTRACE), 1)
-        $(MODULE_NAME)-y += $(HFTRACE_DIR)/fhook.o
+        $(MODULE_NAME)-y += $(HFTRACE_DIR)/fhook.o $(HFTRACE_DIR)/probe.o
         ccflags-y 		 += -DFTRACE_HOOKING -I$(src)/$(HFTRACE_DIR)
 	else
 		$(MODULE_NAME)-y += $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o

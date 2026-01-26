@@ -40,7 +40,7 @@ for i in $(seq 1 $NUM_ENTRIES); do
     sudo $CLIENT add --uid $RAND_UID > /dev/null
 done
 
-# Temporarily disable monitoring
+# --- Disable monitoring ---
 echo "[Script] Disabling monitoring temporarily..."
 sudo $CLIENT status --val 0 > /dev/null
 
@@ -59,9 +59,15 @@ for i in $(seq 1 $NUM_ENTRIES); do
     sudo $CLIENT add --prog "$PROG" > /dev/null
 done
 
-# Temporarily disable monitoring
+# --- Re-enable monitoring ---
 echo "[Script] Re-enabling monitoring..."
 sudo $CLIENT status --val 1 > /dev/null
+
+# --- Set Random Limit ---
+RAND_LIMIT=$((5 + RANDOM % 50))
+RAND_LIMIT=$((RAND_LIMIT * NUM_ENTRIES))  # Scale limit with number of entries
+echo "[Script] Setting random limit to $RAND_LIMIT..."
+sudo $CLIENT limit --val $RAND_LIMIT > /dev/null
 
 echo "[Script] Population complete."
 echo ""

@@ -17,6 +17,7 @@ typedef int scidx_t;
 #ifdef _FTRACE_HOOKING
         // ftrace mode
         struct ftrace_ops fops;
+        bool nil_syscall;
 #elif defined(_DISCOVER_HOOKING)
         // discover mode
         // (no additional fields needed)

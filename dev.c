@@ -51,7 +51,7 @@ int setup_monitor_device(void) {
         PR_ERROR("Device addition failed with %d\n", ret);
         goto err_cdev;
     }
-    PR_INFO("Device added successfully\n");
+    PR_DEBUG("Device added successfully\n");
 
     // Class creation
     #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
@@ -65,7 +65,7 @@ int setup_monitor_device(void) {
         ret = PTR_ERR(dclass);
         goto err_class;
     }
-    PR_INFO("Device class created successfully\n");
+    PR_DEBUG("Device class created successfully\n");
 
     // Device node creation
     dnode = device_create(dclass, NULL, dev, NULL, DNODE_NAME);
@@ -74,7 +74,7 @@ int setup_monitor_device(void) {
         ret = PTR_ERR(dnode);
         goto err_device;
     }
-    PR_INFO("Device node created at /dev/%s\n", DNODE_NAME);
+    PR_DEBUG("Device node created at /dev/%s\n", DNODE_NAME);
 
     return 0;
 

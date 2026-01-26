@@ -36,7 +36,7 @@ void monitor_timer_callback(struct timer_list *t) {
 
     // Reset invocation count
     old_invoks = reset_curw_invoks();
-    PR_INFO("Reset syscall invocation count to 0 (previously %llu)\n", old_invoks);
+    PR_DEBUG("Reset syscall invocation count to 0 (previously %llu)\n", old_invoks);
 
     // Reset statistics for the new interval
     compres_wstats_blocked();

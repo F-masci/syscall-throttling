@@ -22,6 +22,11 @@
     #define _SPINLOCK_PROTECTED
 #endif
 
+/**
+ * @brief Selection strategy for syscall hooking mechanism.
+ * - DISCOVER_HOOKING is the default hooking method for better performance.
+ * - FTRACE_HOOKING is used if explicitly requested, providing better compatibility.
+ */
 #ifndef FTRACE_HOOKING
     #define _DISCOVER_HOOKING
 #else

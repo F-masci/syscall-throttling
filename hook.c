@@ -83,7 +83,6 @@ int setup_syscall_hooks(size_t num_syscalls) {
     // Fill hook structures for each syscall
     // with both common and hook-specific data
     for(scidx_t idx = 0; idx < num_syscalls; idx++) {
-    //for(scidx_t idx = 83; idx < 84; idx++) {
         hook = &syscall_hooks[idx];
         hook->syscall_idx = idx;
         hook->hook_addr = (unsigned long) syscall_wrapper;
@@ -92,6 +91,7 @@ int setup_syscall_hooks(size_t num_syscalls) {
 #elif defined(_DISCOVER_HOOKING)
         ret = init_syscall_dhook(hook);
 #endif
+
         if(ret < 0) {
 #ifdef _FTRACE_HOOKING
             PR_ERROR("Failed to set up ftrace hook structure for syscall %d\n", idx);
@@ -169,7 +169,16 @@ int install_syscall_hook(scidx_t syscall_idx) {
 
     // Sanity check syscall index
     syscall_idx = scidx_sanity_check(syscall_idx);
-    if(syscall_idx < 0) return -ENOSYS;
+    if(syscall_idx < 0) {
+        PR_ERROR("Invalid syscall index %d\n", syscall_idx);
+        return -ENOSYS;
+    }
+
+    // Check monitor status
+    if(unlikely(!get_monitor_status())) {
+        PR_WARN("Skip hook installation on syscall %d as monitoring is disabled\n", syscall_idx);
+        return 0;
+    }
 
 #ifdef _FTRACE_HOOKING
     mutex_lock(&hook_mutex);
@@ -194,7 +203,11 @@ int install_syscall_hook(scidx_t syscall_idx) {
 #endif
 
     if(ret < 0) {
+#ifdef _FTRACE_HOOKING
+        PR_ERROR("Failed to install ftrace hook on syscall %d\n", syscall_idx);
+#elif defined(_DISCOVER_HOOKING)
         PR_ERROR("Failed to install discover hook on syscall %d\n", syscall_idx);
+#endif
         goto installation_hook_err;
     }
 
@@ -225,8 +238,12 @@ int install_monitored_syscalls_hooks(void) {
 
     // Get monitored syscalls
     syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
-    if (!syscall_list) return -ENOMEM;
+    if (!syscall_list) {
+        PR_ERROR("Failed to allocate memory for syscall list\n");
+        return -ENOMEM;
+    }
     syscall_count = get_syscall_monitor_vals(syscall_list, SYSCALL_TABLE_SIZE);
+    PR_DEBUG("Retrieved %lu monitored syscalls to hook\n", syscall_count);
 
     // Install hooks
     for (size_t i = 0; i < syscall_count; i++) {
@@ -259,12 +276,14 @@ inline unsigned long get_original_syscall_address(scidx_t syscall_idx) {
     syscall_idx = scidx_sanity_check(syscall_idx);
     if(syscall_idx < 0) return (unsigned long) NULL;
 
+    // Get original syscall address
     hook = &syscall_hooks[syscall_idx];
     if(unlikely(hook->original_addr == (unsigned long) NULL)) {
         PR_ERROR("Cannot get original address for syscall %d\n", syscall_idx);
         return (unsigned long) NULL;
     }
 
+    // Warn if syscall is not hooked
     if(unlikely(!hook->active)) {
         PR_WARN("Returning original address for syscall %d which is not hooked\n", syscall_idx);
     }

@@ -1,3 +1,16 @@
+/**
+ * @file dhook.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file implements the discover hooking mechanism for syscalls. It
+ *        provides functions to initialize, install, and uninstall syscall hooks
+ *        using the discover hooking method.
+ * 
+ * @version 1.0
+ * @date 2026-01-26
+ * 
+ */
+
 #include <asm/barrier.h>
 
 #include "disc.h"
@@ -51,6 +64,12 @@ int install_syscall_dhook(hook_syscall_t * hook) {
     // Check for valid pointer
     if(unlikely(!hook)) {
         PR_ERROR("Invalid hook pointer\n");
+        return -EINVAL;
+    }
+
+    // Check if already hooked
+    if (unlikely(hook->active)) {
+        PR_ERROR("Hook for syscall %d is already active\n", hook->syscall_idx);
         return -EINVAL;
     }
 

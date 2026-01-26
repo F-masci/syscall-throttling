@@ -1,3 +1,19 @@
+/**
+ * @file ops.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file implements the file operations for the monitor device.
+ *        It provides the read operation to generate a report of the
+ *        current monitoring status and statistics. It gathers data from
+ *        various internal structures and formats it into a human-readable
+ *        report that can be read from user space. It also provides interfaces
+ *        to manage the monitor state.
+ * 
+ * @version 1.0
+ * @date 2026-01-21
+ * 
+ */
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -87,18 +103,30 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
     // Allocate temporary syscall list
     syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
-    if (!syscall_list) goto alloc_syscall_list_err;
+    if (!syscall_list) {
+        PR_ERROR("Failed to allocate memory for syscall list\n");
+        goto alloc_syscall_list_err;
+    }
     syscall_count = get_syscall_monitor_vals(syscall_list, SYSCALL_TABLE_SIZE);
+    PR_DEBUG("Retrieved %lu monitored syscalls\n", syscall_count);
 
     // Allocate temporary UID list
     uid_list = kmalloc_array(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
-    if (!uid_list) goto alloc_uid_list_err;
+    if (!uid_list) {
+        PR_ERROR("Failed to allocate memory for UID list\n");
+        goto alloc_uid_list_err;
+    }
     uid_count = get_uid_monitor_vals(uid_list, MAX_ITEMS);
+    PR_DEBUG("Retrieved %lu monitored UIDs\n", uid_count);
 
     // Allocate temporary Prog Name list
     prog_list = kmalloc_array(MAX_ITEMS, sizeof(char *), GFP_KERNEL);
-    if (!prog_list) goto alloc_prog_list_err;
+    if (!prog_list) {
+        PR_ERROR("Failed to allocate memory for Program Name list\n");
+        goto alloc_prog_list_err;
+    }
     prog_count = get_prog_monitor_vals(prog_list, MAX_ITEMS);
+    PR_DEBUG("Retrieved %lu monitored Programs\n", prog_count);
 
     // Compute required buffer size
     // Estimate the size needed for the report
@@ -111,7 +139,11 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
     // Allocate kernel buffer for report
     kbuf = kvzalloc(limit, GFP_KERNEL);
-    if (!kbuf) goto alloc_kbuff_err;
+    if (!kbuf) {
+        PR_ERROR("Failed to allocate memory for report buffer\n");
+        goto alloc_kbuff_err;
+    }
+    PR_DEBUG("Allocated %zu bytes for report buffer\n", limit);
 
     /* ---- REPORT GENERATION ---- */
 
@@ -168,6 +200,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     // Copy data to user space
     // If user read all data, return 0 to signal EOF
     if (*ppos >= len) {
+        PR_DEBUG("All data read by user, returning EOF\n");
         ret = 0;
         goto no_data_to_copy;
     }
@@ -178,6 +211,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 	// Copy data to user buffer
     if (copy_to_user(buf, kbuf + *ppos, count)) {
+        PR_ERROR("Failed to copy report data to user\n");
         ret = -EFAULT;
         goto no_data_to_copy;
     }
@@ -192,6 +226,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 no_data_to_copy:
     kvfree(kbuf);
+    PR_DEBUG("Freed report buffer\n");
 
 alloc_kbuff_err:
     // Free temporary program names not only the array
@@ -199,12 +234,15 @@ alloc_kbuff_err:
         kfree(prog_list[j]);
     }
     kfree(prog_list);
+    PR_DEBUG("Freed program names list and nodes\n");
 
 alloc_prog_list_err:
     kfree(uid_list);
+    PR_DEBUG("Freed UID list\n");
 
 alloc_uid_list_err:
     kfree(syscall_list);
+    PR_DEBUG("Freed syscall list\n");
 
 alloc_syscall_list_err:
 
@@ -253,7 +291,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     // Check root permissions
     // We can also use capable(CAP_SYS_ADMIN) if needed
     if (current_euid().val != 0) {
-        PR_ERROR_PID("Permission denied for non-root user: command %u\n", cmd);
+        PR_ERROR("Permission denied for non-root user: command %u\n", cmd);
         return -EPERM;
     }
 
@@ -262,26 +300,49 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         /* --- ADD COMMANDS --- */
 
         case SCT_IOCTL_ADD_SYSCALL:
-            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) return -EFAULT;
+            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) {
+                PR_ERROR("Failed to copy syscall index from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to add syscall %d\n", k_syscall_idx);
             add_syscall_monitoring(k_syscall_idx);
-            install_syscall_hook(k_syscall_idx);
+            ret = install_syscall_hook(k_syscall_idx);
+            if (ret < 0) {
+                PR_ERROR("Failed to install hook on newly added monitored syscall %d\n", k_syscall_idx);
+                remove_syscall_monitoring(k_syscall_idx);
+                return ret;
+            }
             PR_INFO("Added syscall %d\n", k_syscall_idx);
             break;
 
         case SCT_IOCTL_ADD_UID:
-            if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
+            if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) {
+                PR_ERROR("Failed to copy UID from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to add UID %d\n", k_uid);
-            add_uid_monitoring(k_uid);
+            ret = add_uid_monitoring(k_uid);
+            if (ret < 0) {
+                PR_ERROR("Failed to add UID %d for monitoring\n", k_uid);
+                return ret;
+            }
             PR_INFO("Added UID %d\n", k_uid);
             break;
 
         case SCT_IOCTL_ADD_PROG:
             k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
-            if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
+            if (IS_ERR(k_progname)) {
+                PR_ERROR("Failed to copy prog name from user\n");
+                return PTR_ERR(k_progname);
+            }
             PR_DEBUG("Received command to add prog name %s\n", k_progname);
-            add_prog_monitoring(k_progname);
-			PR_INFO("Added prog name %s\n", k_progname);
+            ret = add_prog_monitoring(k_progname);
+            if (ret < 0) {
+                PR_ERROR("Failed to add prog name %s for monitoring\n", k_progname);
+                kfree(k_progname);
+                return ret;
+            }
+            PR_INFO("Added prog name %s\n", k_progname);
             kfree(k_progname);
             break;
 
@@ -294,7 +355,10 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             k_status_info.max_invoks = get_monitor_max_invoks();
             k_status_info.cur_invoks = get_curw_invoks();
             k_status_info.window_sec = TIMER_INTERVAL_MS / 1000;
-            if (copy_to_user((void __user *)arg, &k_status_info, sizeof(k_status_info)))  return -EFAULT;
+            if (copy_to_user((void __user *)arg, &k_status_info, sizeof(k_status_info))) {
+                PR_ERROR("Failed to copy monitor status to user\n");
+                return -EFAULT;
+            }
             break;
 
         case SCT_IOCTL_GET_STATS:
@@ -307,13 +371,19 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             k_stats_info.avg_blocked_dec = k_stats_info.avg_blocked_int % AVG_SCALE;
             k_stats_info.avg_blocked_int = k_stats_info.avg_blocked_int / AVG_SCALE;
 
-            if (copy_to_user((void __user *)arg, &k_stats_info, sizeof(k_stats_info))) return -EFAULT;
+            if (copy_to_user((void __user *)arg, &k_stats_info, sizeof(k_stats_info))) {
+                PR_ERROR("Failed to copy throttling stats to user\n");
+                return -EFAULT;
+            }
             break;
 
         case SCT_IOCTL_GET_PEAK_DELAY:
             PR_DEBUG("Received command to get peak delay info\n");
             get_peak_delayed_syscall(&k_delay_info);
-            if (copy_to_user((void __user *)arg, &k_delay_info, sizeof(k_delay_info))) return -EFAULT;
+            if (copy_to_user((void __user *)arg, &k_delay_info, sizeof(k_delay_info))) {
+                PR_ERROR("Failed to copy peak delay info to user\n");
+                return -EFAULT;
+            }
             break;
 
         
@@ -322,13 +392,19 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             // - ptr: pointer to user buffer to fill
             // - max_items: maximum number of items that can be stored in the buffer
             // The kernel fills the buffer and updates real_items with the actual number of items copied
-            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) return -EFAULT;
+            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) {
+                PR_ERROR("Failed to copy syscall list query from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to get syscall list\n");
 
 
             // Allocate temporary array to fetch syscalls
             tmp_syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
-            if (!tmp_syscall_list) return -ENOMEM;
+            if (!tmp_syscall_list) {
+                PR_ERROR("Failed to allocate memory for syscall list\n");
+                return -ENOMEM;
+            }
             real_items = get_syscall_monitor_vals(tmp_syscall_list, SYSCALL_TABLE_SIZE);
             
             // Compute how many items to copy based on user buffer size
@@ -337,6 +413,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
             // Copy syscall list to user buffer
             if (copy_to_user(k_query.ptr, tmp_syscall_list, fetched_count * sizeof(scidx_t))) {
+                PR_ERROR("Failed to copy syscall list to user buffer\n");
                 ret = -EFAULT;
                 goto send_syscall_err;
             }
@@ -345,6 +422,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             k_query.real_items = real_items;
             k_query.fetched_items = fetched_count;
             if (copy_to_user((void __user *)arg, &k_query, sizeof(k_query))) {
+                PR_ERROR("Failed to copy syscall list query result to user\n");
                 ret = -EFAULT;
                 goto send_syscall_err;
             }
@@ -358,12 +436,18 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             // - ptr: pointer to user buffer to fill
             // - max_items: maximum number of items that can be stored in the buffer
             // The kernel fills the buffer and updates real_items with the actual number of items copied
-            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) return -EFAULT;
+            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) {
+                PR_ERROR("Failed to copy UID list query from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to get UID list\n");
 
             // Allocate temporary array to fetch UIDs
             tmp_uid_list = kmalloc_array(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
-            if (!tmp_uid_list) return -ENOMEM;
+            if (!tmp_uid_list) {
+                PR_ERROR("Failed to allocate memory for UID list\n");
+                return -ENOMEM;
+            }
             real_items = get_uid_monitor_vals(tmp_uid_list, MAX_ITEMS);
 
             // Compute how many items to copy based on user buffer size
@@ -372,6 +456,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
             // Copy UID list to user buffer
             if (copy_to_user(k_query.ptr, tmp_uid_list, fetched_count * sizeof(uid_t))) {
+                PR_ERROR("Failed to copy UID list to user buffer\n");
                 ret = -EFAULT;
                 goto send_uid_err;
             }
@@ -380,6 +465,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             k_query.real_items = real_items;
             k_query.fetched_items = fetched_count;
             if (copy_to_user((void __user *)arg, &k_query, sizeof(k_query))) {
+                PR_ERROR("Failed to copy UID list query result to user\n");
                 ret = -EFAULT;
                 goto send_uid_err;
             }
@@ -396,12 +482,18 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             //
             // We assume the user allocated a flat buffer of size max_items * TASK_COMM_LEN bytes
             // so we will copy fixed-length strings into it, each of TASK_COMM_LEN bytes, one after another.
-            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) return -EFAULT;
+            if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) {
+                PR_ERROR("Failed to copy prog name list query from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to get prog name list\n");
 
             // Allocate temporary array to fetch prog names
             tmp_prog_list = kmalloc_array(MAX_ITEMS, sizeof(char *), GFP_KERNEL);
-            if (!tmp_prog_list) return -ENOMEM;
+            if (!tmp_prog_list) {
+                PR_ERROR("Failed to allocate memory for prog name list\n");
+                return -ENOMEM;
+            }
             real_items = get_prog_monitor_vals(tmp_prog_list, MAX_ITEMS);
 
             // Compute how many items to copy based on user buffer size
@@ -411,6 +503,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             // Allocate flat buffer to hold prog names
             flat_prog_buf = kzalloc(fetched_count * TASK_COMM_LEN, GFP_KERNEL);
             if (!flat_prog_buf) {
+                PR_ERROR("Failed to allocate memory for flat prog name buffer\n");
                 ret = -ENOMEM;
                 goto alloc_flat_buf_err;
             }
@@ -423,6 +516,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
             // Copy flat buffer to user space
             if (copy_to_user(k_query.ptr, flat_prog_buf, fetched_count * TASK_COMM_LEN)) {
+                PR_ERROR("Failed to copy prog name list to user buffer\n");
                 ret = -EFAULT;
                 goto send_prog_err;
             }
@@ -431,41 +525,67 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             k_query.real_items = real_items;
             k_query.fetched_items = fetched_count;
             if (copy_to_user((void __user *)arg, &k_query, sizeof(k_query))) {
+                PR_ERROR("Failed to copy prog name list query result to user\n");
                 ret = -EFAULT;
                 goto send_prog_err;
             }
         
         send_prog_err:
             kfree(flat_prog_buf);
+            PR_DEBUG("Freed flat prog name buffer\n");
 
         alloc_flat_buf_err:
             // Free list and names buffer
             for (i = 0; i < fetched_count; i++) kfree(tmp_prog_list[i]);
+            PR_DEBUG("Freed prog name list nodes\n");
             kfree(tmp_prog_list);
+            PR_DEBUG("Freed prog name list array\n");
             break;
 
         /* --- REMOVE COMMANDS --- */
 
         case SCT_IOCTL_DEL_SYSCALL:
-            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) return -EFAULT;
+            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) {
+                PR_ERROR("Failed to copy syscall index from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to remove syscall %d\n", k_syscall_idx);
-            uninstall_syscall_hook(k_syscall_idx);
+            ret = uninstall_syscall_hook(k_syscall_idx);
+            if (ret < 0) {
+                PR_ERROR("Failed to uninstall hook on monitored syscall %d\n", k_syscall_idx);
+                return ret;
+            }
             remove_syscall_monitoring(k_syscall_idx);
             PR_INFO("Removed syscall %d\n", k_syscall_idx);
             break;
 
         case SCT_IOCTL_DEL_UID:
-            if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) return -EFAULT;
+            if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) {
+                PR_ERROR("Failed to copy UID from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to remove UID %d\n", k_uid);
-            remove_uid_monitoring(k_uid);
+            ret = remove_uid_monitoring(k_uid);
+            if (ret < 0) {
+                PR_ERROR("Failed to remove UID %d\n", k_uid);
+                return ret;
+            }
             PR_INFO("Removed UID %d\n", k_uid);
             break;
 
         case SCT_IOCTL_DEL_PROG:
             k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
-            if (IS_ERR(k_progname)) return PTR_ERR(k_progname);
+            if (IS_ERR(k_progname)) {
+                PR_ERROR("Failed to copy prog name from user\n");
+                return PTR_ERR(k_progname);
+            }
             PR_DEBUG("Received command to remove prog name %s\n", k_progname);
-            remove_prog_monitoring(k_progname);
+            ret = remove_prog_monitoring(k_progname);
+            if (ret < 0) {
+                PR_ERROR("Failed to remove prog name %s\n", k_progname);
+                kfree(k_progname);
+                return ret;
+            }
             PR_INFO("Removed prog name %s\n", k_progname);
             kfree(k_progname);
             break;
@@ -473,28 +593,49 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         /* --- CONFIGURATION COMMANDS --- */
 
         case SCT_IOCTL_SET_LIMIT:
-            if (copy_from_user(&k_max_invoks, (u64 __user *)arg, sizeof(k_max_invoks))) return -EFAULT;
+            if (copy_from_user(&k_max_invoks, (u64 __user *)arg, sizeof(k_max_invoks))) {
+                PR_ERROR("Failed to copy max invocations limit from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to set new max invocations limit: %llu\n", k_max_invoks);
-            set_monitor_max_invoks(k_max_invoks);
+            ret = set_monitor_max_invoks(k_max_invoks);
+            if (ret < 0) {
+                PR_ERROR("Failed to set new max invocations limit: %llu\n", k_max_invoks);
+                return ret;
+            }
             PR_INFO("Set new max invocations limit: %llu\n", k_max_invoks);
             break;
 
         case SCT_IOCTL_SET_STATUS:
-            if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) return -EFAULT;
+            if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) {
+                PR_ERROR("Failed to copy monitor status from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to set monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
-            set_monitor_status(k_status != 0);
+            ret = set_monitor_status(k_status != 0);
+            if (ret < 0) {
+                PR_ERROR("Failed to set monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
+                return ret;
+            }
             PR_INFO("Set monitor status: %s\n", k_status ? "ENABLED" : "DISABLED");
             break;
 
         case SCT_IOCTL_SET_FAST_UNLOAD:
-            if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) return -EFAULT;
+            if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) {
+                PR_ERROR("Failed to copy monitor fast unload status from user\n");
+                return -EFAULT;
+            }
             PR_DEBUG("Received command to set monitor fast unload: %s\n", k_status ? "ENABLED" : "DISABLED");
-            set_monitor_fast_unload(k_status != 0);
+            ret = set_monitor_fast_unload(k_status != 0);
+            if (ret < 0) {
+                PR_ERROR("Failed to set monitor fast unload: %s\n", k_status ? "ENABLED" : "DISABLED");
+                return ret;
+            }
             PR_INFO("Set monitor fast unload: %s\n", k_status ? "ENABLED" : "DISABLED");
             break;
 
         default:
-            PR_ERROR_PID("Invalid IOCTL command: %u\n", cmd);
+            PR_ERROR("Invalid IOCTL command: %u\n", cmd);
             return -EINVAL;
     }
 

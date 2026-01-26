@@ -1,3 +1,16 @@
+/**
+ * @file disc.c
+ * @author Francesco Masci (francescomasci@outlook.com)
+ * 
+ * @brief This file implements the discover hooking mechanism for syscalls. It
+ * 	  	  provides functions to set up and clean up the discover hooking mode, the
+ *     	  mechanism to save and restore the original syscall table, and helper functions.
+ * 
+ * @version 1.0
+ * @date 2026-01-26
+ * 
+ */
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -132,8 +145,7 @@ static void syscall_table_finder(void){
 		candidate = k;
 		if((sys_vtpmo(candidate) != NO_MAP)){
 			// check if candidate maintains the syscall_table
-			if(validate_page( (unsigned long *)(candidate)) ){
-				PR_INFO("Syscall table found\n");
+			if(validate_page( (unsigned long *)(candidate)) ) {
 				break;
 			}
 		}
@@ -166,31 +178,41 @@ static inline void call(struct pt_regs *regs, unsigned int nr){
 
 #endif
 
+/**
+ * @brief Set up discover hooking mode
+ * 
+ * @return int 
+ */
 int setup_discover_hook(void) {
 	
+	int ret = 0;
+
 	// Find syscall table
 	syscall_table_finder();
 	if(!hacked_syscall_tbl){
 		PR_ERROR("Failed to find the sys_call_table\n");
-		return -1;
+		return -EINVAL;
 	}
+	PR_DEBUG("Syscall table found\n");
 
 	// Save original syscall addresses
-	original_syscall_addrs = kmalloc(sizeof(unsigned long) * SYSCALL_TABLE_SIZE, GFP_KERNEL);
+	original_syscall_addrs = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(unsigned long), GFP_KERNEL);
 	if(!original_syscall_addrs) {
 		PR_ERROR("Cannot allocate memory for saving original syscall addresses\n");
 		return -ENOMEM;
 	}
 	memcpy(original_syscall_addrs, hacked_syscall_tbl, sizeof(unsigned long) * SYSCALL_TABLE_SIZE);
-	PR_INFO("Original syscall addresses saved\n");
+	PR_DEBUG("Original syscall addresses saved\n");
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-	if (register_kprobe(&kp_x64_sys_call)) {
+	ret = register_kprobe(&kp_x64_sys_call);
+	if (ret < 0) {
 		PR_ERROR("Cannot register kprobe for x64_sys_call\n");
-		return -1;
+		return ret;
 	}
 	PR_DEBUG("Kprobe for x64_sys_call registered\n");
 
+	// Get x64_sys_call address
 	x64_sys_call_addr = (unsigned long)kp_x64_sys_call.addr;
 	unregister_kprobe(&kp_x64_sys_call);
 	PR_DEBUG("Kprobe for x64_sys_call unregistered\n");
@@ -209,6 +231,7 @@ int setup_discover_hook(void) {
 #endif
 
 	begin_syscall_table_hack();	
+	PR_DEBUG("Syscall table hacking started\n");
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 //these kernel versions are configured to avoid the usage of the syscall table 
@@ -218,27 +241,37 @@ int setup_discover_hook(void) {
 //the user can add here whichever configuration he wants that avoids the
 //usage of the syscall table while dispatching syscalls
 	memcpy((unsigned char *)x64_sys_call_addr, jump_inst, INST_LEN);
-	PR_INFO("Hack installed on x64_sys_call\n");
+	PR_DEBUG("Hack installed on x64_sys_call\n");
 #endif
 	end_syscall_table_hack();
+	PR_DEBUG("Syscall table hacking ended\n");
 
 	return 0;
 
 }
 
+/**
+ * @brief Clean up discover hooking mode
+ * 
+ */
 void cleanup_discover_hook(void) {
 	
 	begin_syscall_table_hack();
+	PR_DEBUG("Syscall table hacking started for cleanup\n");
 
 	// Restore original syscall table
 	memcpy(hacked_syscall_tbl, original_syscall_addrs, sizeof(unsigned long) * SYSCALL_TABLE_SIZE);
-	PR_INFO("Original syscall table restored\n");
+	PR_DEBUG("Original syscall table restored\n");
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 	// Restore original x64_sys_call instruction
 	memcpy((unsigned char *)x64_sys_call_addr, original_x64_sys_call_inst, INST_LEN);
-	PR_INFO("Original instruction restored on x64_sys_call.\n");
+	PR_DEBUG("Original instruction restored on x64_sys_call.\n");
 #endif
 	end_syscall_table_hack();
+	PR_DEBUG("Syscall table hacking ended for cleanup\n");
+
+	// Free allocated memory
 	kfree(original_syscall_addrs);
+	PR_DEBUG("Memory for original syscall addresses freed\n");
 }

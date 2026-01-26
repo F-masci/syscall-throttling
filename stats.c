@@ -7,7 +7,7 @@
  *        and counts of invoked and blocked threads per time window.
  * 
  * @version 1.0
- * @date 2026-01-21
+ * @date 2026-01-26
  * 
  */
 
@@ -35,7 +35,7 @@ static wstats_t wstats          = {0, 0, 0};
 
 #endif
 
-static DEFINE_SPINLOCK(peakd_lock);
+static DEFINE_RWLOCK(peakd_lock);
 static DEFINE_RWLOCK(stats_lock);
 
 static atomic64_t blocked_current_window = ATOMIC64_INIT(0);        // Number of blocked threads in the current time window
@@ -115,9 +115,9 @@ void get_peak_delayed_syscall(sysc_delayed_t *_out) {
     if(peak_ptr) memcpy(_out, &peak_ptr->data, sizeof(sysc_delayed_t));
     rcu_read_unlock();
 #elif defined _SPINLOCK_PROTECTED
-    spin_lock_irqsave(&peakd_lock, flags);
+    read_lock_irqsave(&peakd_lock, flags);
     memcpy(_out, &peak_ds, sizeof(sysc_delayed_t));
-    spin_unlock_irqrestore(&peakd_lock, flags);
+    read_unlock_irqrestore(&peakd_lock, flags);
 #endif
 }
 
@@ -160,7 +160,7 @@ bool update_peak_delay(s64 delay_ms, uid_t uid, pid_t pid, const char *prog_name
 #else
 #endif
 
-    spin_lock_irqsave(&peakd_lock, flags);
+    write_lock_irqsave(&peakd_lock, flags);
 
 #ifdef _RCU_PROTECTED
     // Re-check with lock
@@ -202,7 +202,7 @@ bool update_peak_delay(s64 delay_ms, uid_t uid, pid_t pid, const char *prog_name
 #elif defined _SPINLOCK_PROTECTED
 #endif
 
-    spin_unlock_irqrestore(&peakd_lock, flags);
+    write_unlock_irqrestore(&peakd_lock, flags);
 
     return updated;
 }
@@ -223,7 +223,7 @@ int reset_peak_delay(void) {
 #else
 #endif
     
-    spin_lock_irqsave(&peakd_lock, flags);
+    write_lock_irqsave(&peakd_lock, flags);
 
     // Publish new peak pointer
 #ifdef _RCU_PROTECTED
@@ -235,7 +235,7 @@ int reset_peak_delay(void) {
     peak_ds.syscall = -1;
 #endif
     
-    spin_unlock_irqrestore(&peakd_lock, flags);
+    write_unlock_irqrestore(&peakd_lock, flags);
 
     return 0;
 }
