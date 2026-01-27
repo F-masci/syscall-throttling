@@ -10,6 +10,12 @@ HFTRACE_DIR := hook/ftrace
 # 0 = Enable DISCOVER hooking
 ENABLE_FTRACE := 0
 
+# SET to enable LOW MEMORY mode (reduced memory usage at the cost of performance)
+#
+# 1 = Enable LOW MEMORY mode
+# 0 = Disable LOW MEMORY mode (default)
+ENABLE_LOWMEM := 0
+
 # Set to SPINLOCK_PROTECTED to use spinlocks as synchronization method
 # Set to RCU_PROTECTED to use RCU as synchronization method (default)
 #
@@ -40,6 +46,10 @@ ifneq ($(KERNELRELEASE),)
 		ccflags-y 		 += -DDISCOVER_HOOKING -I$(src)/$(HDISC_DIR) -I$(src)/$(HDISC_DIR)/lib
     endif
 
+	ifeq ($(ENABLE_LOWMEM), 1)
+		ccflags-y 		 += -DLOW_MEMORY
+	endif
+
 # --- SEZIONE USERSPACE ---
 else
     KDIR := /lib/modules/$(shell uname -r)/build
@@ -54,6 +64,11 @@ all:
 		echo "Using FTRACE hooking method"; \
 	else \
 		echo "Using DISCOVER hooking method"; \
+	fi
+	@if [ "$(ENABLE_LOWMEM)" -eq "1" ]; then \
+		echo "LOW MEMORY mode enabled"; \
+	else \
+		echo "LOW MEMORY mode disabled"; \
 	fi
 	@echo "Building against kernel: $(shell uname -r)"
 	@echo "Kernel build directory: $(KDIR)"

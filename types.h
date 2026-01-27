@@ -42,6 +42,10 @@ typedef int scidx_t;
     #define TASK_COMM_LEN 16
     #endif
 
+    #ifndef PATH_MAX
+    #define PATH_MAX 4096
+    #endif
+
     typedef int64_t s64;
     typedef uint64_t u64;
     typedef uint32_t u32;
@@ -50,11 +54,10 @@ typedef int scidx_t;
 #endif
 
 typedef struct {
-    pid_t pid;
-    char prog_name[TASK_COMM_LEN];
     scidx_t syscall;
     uid_t uid;
     s64 delay_ms;
+    char *prog_name;
 } sysc_delayed_t;
 
 /* ---- IOCTL STRUCTURES ---- */
@@ -73,6 +76,7 @@ typedef struct {
     u64 peak_blocked;
     u64 avg_blocked_int;
     u64 avg_blocked_dec;
+    u64 windows_num;
 } throttling_stats_t;
 
 // Generic structure for requesting lists (Syscall, UID, Prog)

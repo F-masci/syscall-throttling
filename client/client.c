@@ -97,7 +97,7 @@ int handle_get_list(int fd, target_type_t type) {
     switch (type) {
         case TARGET_SYSCALL: req = SCT_IOCTL_GET_SYSCALL_LIST; item_size = sizeof(scidx_t); break;
         case TARGET_UID:     req = SCT_IOCTL_GET_UID_LIST;     item_size = sizeof(uid_t); break;
-        case TARGET_PROG:    req = SCT_IOCTL_GET_PROG_LIST;    item_size = TASK_COMM_LEN; break; // Fixed size strings
+        case TARGET_PROG:    req = SCT_IOCTL_GET_PROG_LIST;    item_size = PATH_MAX; break; // Fixed size strings
         default: return -1;
     }
 
@@ -135,6 +135,7 @@ int handle_get_list(int fd, target_type_t type) {
     }
 
     // Print results
+    char *current_ptr = (char *) query.ptr;
     printf("Fetched %zu items (Total available: %zu):\n", query.fetched_items, query.real_items);
     for (size_t i = 0; i < query.fetched_items; i++) {
         if (type == TARGET_SYSCALL) {
@@ -143,8 +144,8 @@ int handle_get_list(int fd, target_type_t type) {
             printf("  - [%zu] UID: %u\n", i, ((uid_t*)query.ptr)[i]);
         } else if (type == TARGET_PROG) {
             // Calculate pointer to the i-th string
-            char *name = (char*)query.ptr + (i * TASK_COMM_LEN);
-            printf("  - [%zu] Program: %s\n", i, name);
+            printf("  - [%zu] Program: %s\n", i, current_ptr);
+            current_ptr += strlen(current_ptr) + 1;
         }
     }
 
@@ -396,7 +397,6 @@ int main(int argc, char **argv) {
             if (delay_info.syscall > -1) {
                 printf("Delay:      %ld ms\n", delay_info.delay_ms);
                 printf("Syscall:    %d\n", delay_info.syscall);
-                printf("PID:        %d\n", delay_info.pid);
                 printf("UID:        %u\n", delay_info.uid);
                 printf("Program:    %s\n", delay_info.prog_name);
             } else {

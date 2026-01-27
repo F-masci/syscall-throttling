@@ -46,10 +46,10 @@
 
 #define AVG_SCALE 100
 
-#define BYTES_HEADER_STATS     1024 // default is 1024 bytes for Header and Stats
-#define BYTES_PER_SYSCALL_LINE 32   // default is 32 bytes per syscall line
-#define BYTES_PER_UID_LINE     32   // default is 32 bytes per UID line
-#define BYTES_PER_PROG_LINE    64   // default is 64 bytes per Program line
+#define BYTES_HEADER_STATS     1024             // default is 1024 bytes for Header and Stats
+#define BYTES_PER_SYSCALL_LINE 32               // default is 32 bytes per syscall line
+#define BYTES_PER_UID_LINE     32               // default is 32 bytes per UID line
+#define BYTES_PER_PROG_LINE    PATH_MAX + 64    // default is 4096 bytes per Program line
 
 /**
  * @brief Read operation for the monitor device.
@@ -69,7 +69,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
     bool status, fast_unload;
     u64 max_invoks, cur_invoks;
-    u64 peak_blocked, avg_blocked;
+    u64 peak_blocked, avg_blocked, windows_num;
     sysc_delayed_t peak_delay;
 
     scidx_t *syscall_list;
@@ -80,6 +80,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     
     char **prog_list;
     size_t prog_count;
+    size_t prog_size = 0;
 
     char *kbuf;
     size_t limit = PAGE_SIZE;
@@ -90,19 +91,20 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     ret = -ENOMEM;
 
     // Get monitor status and limits
-    status = get_monitor_status();
+    status      = get_monitor_status();
     fast_unload = get_monitor_fast_unload();
-    max_invoks = get_monitor_max_invoks();
-    cur_invoks = get_curw_invoks();
+    max_invoks  = get_monitor_max_invoks();
+    cur_invoks  = get_curw_invoks();
 
     // Get throttling stats
-    get_stats_blocked(&peak_blocked, &avg_blocked, AVG_SCALE);
+    get_stats_blocked(&peak_blocked, &avg_blocked, &windows_num, AVG_SCALE);
 
     // Get peak delayed syscall info
     get_peak_delayed_syscall(&peak_delay);
 
     // Allocate temporary syscall list
-    syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
+    syscall_count = get_syscall_monitor_num();
+    syscall_list = kmalloc_array(syscall_count, sizeof(scidx_t), GFP_KERNEL);
     if (!syscall_list) {
         PR_ERROR("Failed to allocate memory for syscall list\n");
         goto alloc_syscall_list_err;
@@ -111,22 +113,31 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     PR_DEBUG("Retrieved %lu monitored syscalls\n", syscall_count);
 
     // Allocate temporary UID list
-    uid_list = kmalloc_array(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
+    uid_count = get_uid_monitor_num();
+    uid_list = kmalloc_array(uid_count, sizeof(uid_t), GFP_KERNEL);
     if (!uid_list) {
         PR_ERROR("Failed to allocate memory for UID list\n");
         goto alloc_uid_list_err;
     }
-    uid_count = get_uid_monitor_vals(uid_list, MAX_ITEMS);
+    uid_count = get_uid_monitor_vals(uid_list, uid_count);
     PR_DEBUG("Retrieved %lu monitored UIDs\n", uid_count);
 
     // Allocate temporary Prog Name list
-    prog_list = kmalloc_array(MAX_ITEMS, sizeof(char *), GFP_KERNEL);
+    prog_count = get_prog_monitor_num();
+    prog_list = kmalloc_array(prog_count, sizeof(char *), GFP_KERNEL);
     if (!prog_list) {
         PR_ERROR("Failed to allocate memory for Program Name list\n");
         goto alloc_prog_list_err;
     }
-    prog_count = get_prog_monitor_vals(prog_list, MAX_ITEMS);
+    prog_count = get_prog_monitor_vals(prog_list, prog_count);
     PR_DEBUG("Retrieved %lu monitored Programs\n", prog_count);
+
+    // Compute total size of program names
+    // to avoid exceeding memory limits
+    for (j = 0; j < prog_count; j++) {
+        prog_size += strlen(prog_list[j]) + 1;
+    }
+    prog_size += PAGE_SIZE; // Add margin
 
     // Compute required buffer size
     // Estimate the size needed for the report
@@ -135,7 +146,8 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     limit = BYTES_HEADER_STATS;
     limit += syscall_count * BYTES_PER_SYSCALL_LINE;
     limit += uid_count * BYTES_PER_UID_LINE;
-    limit += prog_count * BYTES_PER_PROG_LINE;
+    // limit += prog_count * BYTES_PER_PROG_LINE; -> replaced with actual size to avoid overestimation
+    limit += prog_size;
 
     // Allocate kernel buffer for report
     kbuf = kvzalloc(limit, GFP_KERNEL);
@@ -152,24 +164,24 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
     // --- General Status ---
     __SCNPRINTF("========= DEVICE STATUS =========\n");
-    __SCNPRINTF("Status: %s\n", status ? "ENABLED" : "DISABLED");
+    __SCNPRINTF("Status:      %s\n", status ? "ENABLED" : "DISABLED");
     __SCNPRINTF("Fast Unload: %s\n", fast_unload ? "ENABLED" : "DISABLED");
-    __SCNPRINTF("Max: %llu invocations/s\n", max_invoks);
-    __SCNPRINTF("Cur: %llu invocations\n", cur_invoks);
-    __SCNPRINTF("Win: %d secs\n", TIMER_INTERVAL_MS / 1000);
+    __SCNPRINTF("Max:         %llu invocations/s\n", max_invoks);
+    __SCNPRINTF("Win:         %d secs (%d ms)\n", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
 
     // --- Throttling Stats ---
     __SCNPRINTF("======== THROTTLING INFO ========\n");
+    __SCNPRINTF("Current invocations:  %llu\n", cur_invoks);
     __SCNPRINTF("Peak Blocked Threads: %llu\n", peak_blocked);
-    __SCNPRINTF("Avg Blocked Threads: %llu.%02llu\n", avg_blocked / AVG_SCALE, avg_blocked % AVG_SCALE);
+    __SCNPRINTF("Avg Blocked Threads:  %llu.%02llu\n", avg_blocked / AVG_SCALE, avg_blocked % AVG_SCALE);
+    __SCNPRINTF("Observed Window:      %llu (%llu s)\n", windows_num, windows_num * TIMER_INTERVAL_S);
     
     __SCNPRINTF("======== PEAK DELAY INFO ========\n");
     if (peak_delay.syscall > -1) {
-        __SCNPRINTF("Delay: %lld ms\n", peak_delay.delay_ms);
+        __SCNPRINTF("Delay:   %lld ms\n", peak_delay.delay_ms);
         __SCNPRINTF("Syscall: %d\n", peak_delay.syscall);
-        __SCNPRINTF("Program: %s\n", peak_delay.prog_name);
-        __SCNPRINTF("PID: %d\n", peak_delay.pid);
-        __SCNPRINTF("UID: %d\n", peak_delay.uid);
+        __SCNPRINTF("Program: %s\n", peak_delay.prog_name ? peak_delay.prog_name : "N/A");
+        __SCNPRINTF("UID:     %d\n", peak_delay.uid);
     } else {
         __SCNPRINTF("No delayed syscalls recorded yet.\n");
     }
@@ -285,7 +297,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     scidx_t *tmp_syscall_list = NULL;
     uid_t *tmp_uid_list = NULL;
     char **tmp_prog_list = NULL;
-    size_t fetched_count, real_items, i;
+    size_t fetched_count, real_items, i, flat_prog_buf_size, flat_prog_buf_offset;
     char *flat_prog_buf = NULL;
 
     // Check root permissions
@@ -330,7 +342,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             break;
 
         case SCT_IOCTL_ADD_PROG:
-            k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
+            k_progname = strndup_user((const char __user *)arg, PATH_MAX);
             if (IS_ERR(k_progname)) {
                 PR_ERROR("Failed to copy prog name from user\n");
                 return PTR_ERR(k_progname);
@@ -365,7 +377,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             PR_DEBUG("Received command to get throttling stats\n");
 
             // Get stats of throttling
-            get_stats_blocked(&k_stats_info.peak_blocked, &k_stats_info.avg_blocked_int, AVG_SCALE);
+            get_stats_blocked(&k_stats_info.peak_blocked, &k_stats_info.avg_blocked_int, &k_stats_info.windows_num, AVG_SCALE);
             
             // Update avg blocked to have integer and decimal parts
             k_stats_info.avg_blocked_dec = k_stats_info.avg_blocked_int % AVG_SCALE;
@@ -400,12 +412,13 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
 
             // Allocate temporary array to fetch syscalls
-            tmp_syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
+            real_items = get_syscall_monitor_num();
+            tmp_syscall_list = kmalloc_array(real_items, sizeof(scidx_t), GFP_KERNEL);
             if (!tmp_syscall_list) {
                 PR_ERROR("Failed to allocate memory for syscall list\n");
                 return -ENOMEM;
             }
-            real_items = get_syscall_monitor_vals(tmp_syscall_list, SYSCALL_TABLE_SIZE);
+            real_items = get_syscall_monitor_vals(tmp_syscall_list, real_items);
             
             // Compute how many items to copy based on user buffer size
             fetched_count = real_items;
@@ -443,12 +456,13 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             PR_DEBUG("Received command to get UID list\n");
 
             // Allocate temporary array to fetch UIDs
-            tmp_uid_list = kmalloc_array(MAX_ITEMS, sizeof(uid_t), GFP_KERNEL);
+            real_items = get_uid_monitor_num();
+            tmp_uid_list = kmalloc_array(real_items, sizeof(uid_t), GFP_KERNEL);
             if (!tmp_uid_list) {
                 PR_ERROR("Failed to allocate memory for UID list\n");
                 return -ENOMEM;
             }
-            real_items = get_uid_monitor_vals(tmp_uid_list, MAX_ITEMS);
+            real_items = get_uid_monitor_vals(tmp_uid_list, real_items);
 
             // Compute how many items to copy based on user buffer size
             fetched_count = real_items;
@@ -480,8 +494,8 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             // - max_items: maximum number of items that can be stored in the buffer
             // The kernel fills the buffer and updates real_items with the actual number of items copied
             //
-            // We assume the user allocated a flat buffer of size max_items * TASK_COMM_LEN bytes
-            // so we will copy fixed-length strings into it, each of TASK_COMM_LEN bytes, one after another.
+            // We assume the user allocated a flat buffer of size max_items * PATH_MAX bytes
+            // so we will copy packed-length strings into it, one after another.
             if (copy_from_user(&k_query, (void __user *)arg, sizeof(k_query))) {
                 PR_ERROR("Failed to copy prog name list query from user\n");
                 return -EFAULT;
@@ -489,19 +503,26 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             PR_DEBUG("Received command to get prog name list\n");
 
             // Allocate temporary array to fetch prog names
-            tmp_prog_list = kmalloc_array(MAX_ITEMS, sizeof(char *), GFP_KERNEL);
+            real_items = get_prog_monitor_num();
+            tmp_prog_list = kmalloc_array(real_items, sizeof(char *), GFP_KERNEL);
             if (!tmp_prog_list) {
                 PR_ERROR("Failed to allocate memory for prog name list\n");
                 return -ENOMEM;
             }
-            real_items = get_prog_monitor_vals(tmp_prog_list, MAX_ITEMS);
+            real_items = get_prog_monitor_vals(tmp_prog_list, real_items);
 
             // Compute how many items to copy based on user buffer size
             fetched_count = real_items;
             if (k_query.max_items < fetched_count) fetched_count = k_query.max_items;
 
+            // Compute size needed for flat buffer
+            flat_prog_buf_size = 0;
+            for (i = 0; i < fetched_count; i++) {
+                flat_prog_buf_size += (tmp_prog_list[i]) ? strlen(tmp_prog_list[i]) + 1 : 1;
+            }
+
             // Allocate flat buffer to hold prog names
-            flat_prog_buf = kzalloc(fetched_count * TASK_COMM_LEN, GFP_KERNEL);
+            flat_prog_buf = kvzalloc(flat_prog_buf_size, GFP_KERNEL);
             if (!flat_prog_buf) {
                 PR_ERROR("Failed to allocate memory for flat prog name buffer\n");
                 ret = -ENOMEM;
@@ -510,12 +531,16 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
             // Create flat buffer with fixed-length entries
             // from tmp prog list
+            flat_prog_buf_offset = 0;
             for (i = 0; i < fetched_count; i++) {
-                memcpy(flat_prog_buf + (i * TASK_COMM_LEN), tmp_prog_list[i], TASK_COMM_LEN);
+                char *src = tmp_prog_list[i] ? tmp_prog_list[i] : "";
+                size_t len = strlen(src) + 1;
+                memcpy(flat_prog_buf + flat_prog_buf_offset, src, len);
+                flat_prog_buf_offset += len;
             }
 
             // Copy flat buffer to user space
-            if (copy_to_user(k_query.ptr, flat_prog_buf, fetched_count * TASK_COMM_LEN)) {
+            if (copy_to_user(k_query.ptr, flat_prog_buf, flat_prog_buf_size)) {
                 PR_ERROR("Failed to copy prog name list to user buffer\n");
                 ret = -EFAULT;
                 goto send_prog_err;
@@ -531,7 +556,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             }
         
         send_prog_err:
-            kfree(flat_prog_buf);
+            kvfree(flat_prog_buf);
             PR_DEBUG("Freed flat prog name buffer\n");
 
         alloc_flat_buf_err:
@@ -574,7 +599,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             break;
 
         case SCT_IOCTL_DEL_PROG:
-            k_progname = strndup_user((const char __user *)arg, TASK_COMM_LEN);
+            k_progname = strndup_user((const char __user *)arg, PATH_MAX);
             if (IS_ERR(k_progname)) {
                 PR_ERROR("Failed to copy prog name from user\n");
                 return PTR_ERR(k_progname);

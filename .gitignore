@@ -17,6 +17,7 @@ keys/
 _*
 
 client/client
+client/pause
 _syst.h
 
 !hook/discover/lib/*

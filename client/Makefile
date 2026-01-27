@@ -1,10 +1,14 @@
-SRC=client.c
-OUT=client
+CLIENT_SRC=client.c
+PAUSE_SRC=pause.c
+
+CLIENT_OUT=client
+PAUSE_OUT=pause
 
 CFLAGS=-Wall -Wextra
 
 all:
-	$(CC) $(CFLAGS) -o $(OUT) $(SRC)
+	$(CC) $(CFLAGS) -o $(CLIENT_OUT) $(CLIENT_SRC)
+	$(CC) $(CFLAGS) -o $(PAUSE_OUT) $(PAUSE_SRC)
 
 clean:
-	rm -f $(OUT)
+	rm -f $(CLIENT_OUT) $(PAUSE_OUT)

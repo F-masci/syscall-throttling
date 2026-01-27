@@ -5,7 +5,28 @@ CLIENT="./client"
 NUM_ENTRIES=${1:-5}  # Default to 5 entries if not provided
 
 # Common Linux program names for random selection
-PROG_NAMES=("vim" "nano" "cat" "grep" "find" "ls" "cp" "mv" "rm" "mkdir" "touch" "python3" "gcc" "make" "tar" "ssh" "bash" "git" "docker" "curl")
+PROG_NAMES=(
+    "/usr/bin/vim"
+    "/usr/bin/nano"
+    "/usr/bin/cat"
+    "/usr/bin/grep"
+    "/usr/bin/find"
+    "/usr/bin/ls"
+    "/usr/bin/cp"
+    "/usr/bin/mv"
+    "/usr/bin/rm"
+    "/usr/bin/mkdir"
+    "/usr/bin/touch"
+    "/usr/bin/python3"
+    "/usr/bin/gcc"
+    "/usr/bin/make"
+    "/usr/bin/tar"
+    "/usr/bin/ssh"
+    "/usr/bin/bash"
+    "/usr/bin/git"
+    "/usr/bin/docker"
+    "/usr/bin/curl"
+)
 
 # Check if client exists
 if [ ! -f "$CLIENT" ]; then

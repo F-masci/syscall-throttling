@@ -21,6 +21,9 @@
 #include <linux/string.h>
 #include <linux/nospec.h>
 #include <asm/barrier.h>
+#include <linux/sched/mm.h>
+#include <linux/mm.h>
+#include <linux/file.h>
 
 #ifdef _FTRACE_HOOKING
 #include <linux/mutex.h>
@@ -443,6 +446,9 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     ktime_t start, end;
     s64 delay_ms;
 
+    bool uid_monitored = false, prog_monitored = false;
+    struct inode *exe_inode = NULL;
+
     bool inc_blocked = false;
     u64 current_val;
     long ret;
@@ -475,10 +481,8 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 
     PR_DEBUG_PID("Syscall %d invoked\n", syscall_idx);
     PR_DEBUG_PID("-> thread pid: %d\n", current->pid);
-    PR_DEBUG_PID("-> uid: %d\n", current_uid().val);
+    PR_DEBUG_PID("-> euid: %d\n", current_euid().val);
     PR_DEBUG_PID("-> comm: %s\n", current->comm);
-
-    PR_DEBUG_PID("-> total invocations: %llu\n", get_curw_invoks());
     
     // Check if throttling is enabled
     if(unlikely(!get_monitor_status())) {
@@ -492,9 +496,39 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
         goto run_syscall;
     }
 
+    // Get if prog is monitored
+    task_lock(current);
+    if (current->mm && current->mm->exe_file) {
+        // Get executable inode
+        exe_inode = file_inode(current->mm->exe_file);
+        if (exe_inode) {
+#ifdef DEBUG
+            char * prog_path = get_exe_path(current->mm->exe_file);
+            if(!prog_path) PR_WARN_PID("Failed to get executable path during monitoring\n");
+
+            PR_DEBUG_PID("-> device: %u\n", exe_inode->i_sb->s_dev);
+            PR_DEBUG_PID("-> inode: %lu\n", exe_inode->i_ino);
+            PR_DEBUG_PID("-> path: %s\n", prog_path ? prog_path : "N/A");
+
+            kfree(prog_path);
+#else
+#endif
+
+            prog_monitored = is_prog_monitored(exe_inode->i_ino, exe_inode->i_sb->s_dev);
+            PR_DEBUG_PID("-> program monitored: %s\n", prog_monitored ? "YES" : "NO");
+        }
+    }
+    task_unlock(current);
+
+    // Get if uid is monitored
+    uid_monitored = is_uid_monitored(current_euid().val);
+    PR_DEBUG_PID("-> uid monitored: %s\n", uid_monitored ? "YES" : "NO");
+
+    PR_DEBUG_PID("-> total invocations: %llu\n", get_curw_invoks());
+
     // Check if current UID and program is monitored
-    if(!is_uid_monitored(current_euid().val) && !is_prog_monitored(current->comm)) {
-        PR_DEBUG_PID("UID %d and program %s not monitored\n", current_euid().val, current->comm);
+    if(!uid_monitored && !prog_monitored) {
+        PR_DEBUG_PID("Execution not monitored\n");
         goto run_syscall;
     }
 
@@ -556,7 +590,7 @@ allow_syscall:
     PR_DEBUG_PID("Syscall %d allowed (slot %llu)\n", syscall_idx, current_val);
     
     END_TIMER(end, start, delay_ms);
-    update_peak_delay(delay_ms, current_uid().val, current->pid, current->comm, syscall_idx);
+    update_peak_delay(delay_ms, syscall_idx);
 
 run_syscall:
     if(unlikely(unloading)) PR_INFO_PID("Running syscall before module unload\n");

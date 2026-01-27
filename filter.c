@@ -17,6 +17,9 @@
 #include <linux/string.h>
 #include <linux/nospec.h>
 #include <linux/rcupdate.h>
+#include <linux/namei.h>
+#include <linux/path.h>
+#include <linux/jhash.h>
 
 #include "filter.h"
 
@@ -345,6 +348,54 @@ uid_monitor_removed:
 /* --- PROG NAMES MONITORING --- */
 
 /**
+ * @brief Get the current process executable path
+ * 
+ * @param exe_file Pointer to the executable file structure
+ * 
+ * @return char* Kernel-allocated string containing the path, or NULL on failure
+ * 
+ * @note The returned string must be freed by the caller using kfree().
+ *       Must be called under task_lock.
+ */
+char *get_exe_path(struct file *exe_file) {
+
+    char *buf, *path_str = NULL, *res = NULL;
+    
+    if(!exe_file) {
+        PR_ERROR_PID("Executable file pointer is NULL\n");
+        return NULL;
+    }
+
+    // Allocate buffer for path
+    buf = kmalloc(PATH_MAX, GFP_ATOMIC); 
+    if (!buf) {
+        PR_ERROR_PID("Failed to allocate memory for executable path buffer\n");
+        return NULL;
+    }
+
+    // Search path
+    path_str = d_path(&exe_file->f_path, buf, PATH_MAX);
+    if (IS_ERR(path_str)) {
+        PR_ERROR_PID("Failed to get executable path string\n");
+        kfree(buf);
+        return NULL;
+    }
+
+    // Duplicate path string to return
+    res = kstrdup(path_str, GFP_ATOMIC);
+    if (!res) {
+        PR_ERROR_PID("Failed to duplicate executable path string\n");
+        kfree(buf);
+        return NULL;
+    }
+
+    // Cleanup and return
+    kfree(buf);
+
+    return res;
+}
+
+/**
  * @brief Get the number of program names monitored
  * 
  * @return size_t 
@@ -353,6 +404,7 @@ size_t get_prog_monitor_num() {
     return atomic64_read(&prog_count);
 }
 
+#define FPATH_BUF_SIZE 64
 /**
  * @brief Get the program names monitor values
  * 
@@ -367,13 +419,41 @@ size_t get_prog_monitor_vals(char **buf, size_t max_size) {
     struct prog_node *cur;
     int bkt;
     size_t count = 0;
+    char * fpath;
+#ifdef LOW_MEMORY
+    char tmp_fpath[FPATH_BUF_SIZE];
+#else
+#endif
+
+    if(unlikely(!buf)) {
+        PR_ERROR("Invalid buffer to store program names\n");
+        return -EINVAL;
+    }
 
     // Start critical section
     read_lock_irqsave(&prog_lock, flags);
 
     hash_for_each(progname_ht, bkt, cur, node) {
         if (count >= max_size) break;
-        if (buf) buf[count] = kstrndup(cur->name, TASK_COMM_LEN, GFP_ATOMIC);
+
+#ifndef LOW_MEMORY
+        fpath = kstrndup(cur->fpath, PATH_MAX, GFP_ATOMIC);
+        if(!fpath) {
+            PR_ERROR("Failed to duplicate program name %s\n", cur->fpath);
+            continue;
+        }
+#else
+        if(snprintf(tmp_fpath, FPATH_BUF_SIZE, "inode:%lu-device:%u", cur->inode, cur->device) < 0) {
+            PR_ERROR("Failed to format program name for inode %lu and device %u\n", cur->inode, cur->device);
+            continue;
+        }
+        fpath = kstrdup(tmp_fpath, GFP_ATOMIC);
+        if(!fpath) {
+            PR_ERROR("Failed to duplicate program name %s\n", tmp_fpath);
+            continue;
+        }
+#endif
+        buf[count] = fpath;
         count++;
     }
     PR_DEBUG("Retrieved %zu monitored program names\n", count);
@@ -383,28 +463,29 @@ size_t get_prog_monitor_vals(char **buf, size_t max_size) {
     
     return count;
 }
+#undef FPATH_BUF_SIZE
 
 /**
  * @brief Check if a program name is monitored
  * 
- * @param name Program name to check
+ * @param inode Inode number of the program
+ * @param device Device number of the program
  * @return bool True if monitored, false otherwise
  */
-inline bool is_prog_monitored(const char *name) {
+inline bool is_prog_monitored(unsigned long inode, dev_t device) {
 
     struct prog_node *cur;
     bool found = false;
     u32 key_hash;
 
     // Basic sanity check
-    if (unlikely(!name)) return false;
-    key_hash = full_name_hash(NULL, name, strlen(name));
+    key_hash = jhash_2words((u32) inode, (u32) device, PROG_HASH_SALT);
 
     // RCU read section
     rcu_read_lock();
 
     hash_for_each_possible_rcu(progname_ht, cur, node, key_hash) {
-        if (strcmp(cur->name, name) == 0) {
+        if (cur->inode == inode && cur->device == device) {
             found = true;
             break;
         }
@@ -419,45 +500,79 @@ inline bool is_prog_monitored(const char *name) {
 /**
  * @brief Add a program name to the monitored list
  * 
- * @param name Program name to add
+ * @param fpath File path of the program to add
  * @return int 0 on success, error code otherwise
  */
-int add_prog_monitoring(const char *name) {
+int add_prog_monitoring(const char *fpath) {
 
     unsigned long flags;
     struct prog_node *new_node;
+    struct path path;
+    struct inode *inode;
     u32 key_hash;
+    int ret = 0;
 
     // Basic sanity check
-    if (unlikely(!name)) {
+    if (unlikely(!fpath)) {
         PR_ERROR("Invalid program name\n");
         return -EINVAL;
     }
 
-    // Compute hash key
-    key_hash = full_name_hash(NULL, name, strlen(name));
+    // Resolve path to get inode and device
+    ret = kern_path(fpath, LOOKUP_FOLLOW, &path);
+    if (ret) {
+        PR_ERROR("Cannot resolve path %s\n", fpath);
+        return ret;
+    }
+
+    // Get inode and device
+    inode = path.dentry->d_inode;
+    if (!inode) {
+        PR_ERROR("Cannot get inode for path %s\n", fpath);
+        path_put(&path);
+        return -ENOENT;
+    }
 
     // Prepare new node
-    PR_DEBUG("Preparing node to add program name %s to monitoring list\n", name);
+    PR_DEBUG("Preparing node to add program name %s to monitoring list\n", fpath);
     new_node = kmalloc(sizeof(*new_node), GFP_KERNEL);
     if (!new_node) {
         PR_ERROR("Cannot allocate memory for new program node\n");
+        path_put(&path);
         return -ENOMEM;
     }
 
-    // Copy program name
-    if(unlikely(strscpy(new_node->name, name, TASK_COMM_LEN) < 0)) {
-        PR_ERROR("Program name %s too long\n", name);
+    // Fill node data
+    new_node->inode  = inode->i_ino;
+    new_node->device = inode->i_sb->s_dev;
+
+#ifndef LOW_MEMORY
+    new_node->fpath  = kstrndup(fpath, PATH_MAX, GFP_KERNEL);
+    if (!new_node->fpath) {
+        PR_ERROR("Cannot allocate memory for program name %s\n", fpath);
         kfree(new_node);
-        return -ENAMETOOLONG;
+        path_put(&path);
+        return -ENOMEM;
     }
+#else
+#endif
+
+    // Compute hash key
+    key_hash = jhash_2words((u32) new_node->inode, (u32) new_node->device, PROG_HASH_SALT);
+
+    // Release path
+    path_put(&path);
 
     // Start critical section
     write_lock_irqsave(&prog_lock, flags);
 
     // Check if already monitored
-    if(is_prog_monitored(name)) {
-        PR_DEBUG("Program name %s already monitored\n", name);
+    if(is_prog_monitored(new_node->inode, new_node->device)) {
+        PR_DEBUG("Program name %s already monitored\n", fpath);
+#ifndef LOW_MEMORY
+        kfree(new_node->fpath);
+#else
+#endif
         kfree(new_node);
         goto prog_monitored;
     }
@@ -465,7 +580,7 @@ int add_prog_monitoring(const char *name) {
     // Add to hash table
     hash_add_rcu(progname_ht, &new_node->node, key_hash);
     atomic64_inc(&prog_count);
-    PR_DEBUG("Added program name %s to monitoring list\n", name);
+    PR_DEBUG("Added program name %s to monitoring list\n", fpath);
 
     // End critical section
 prog_monitored:
@@ -477,42 +592,65 @@ prog_monitored:
 /**
  * @brief Remove a program name from the monitored list
  * 
- * @param name Program name to remove
+ * @param fpath File path of the program to add
  * @return int 0 on success, error code otherwise
  */
-int remove_prog_monitoring(const char *name) {
+int remove_prog_monitoring(const char *fpath) {
 
     unsigned long flags;
     struct prog_node *cur;
+    struct path path;
+    struct inode *inode;
     struct hlist_node *tmp;
     u32 key_hash;
     int ret = -ENOENT;
 
     // Basic sanity check
-    if (unlikely(!name)) {
+    if (unlikely(!fpath)) {
         PR_ERROR("Invalid program name\n");
         return -EINVAL;
     }
 
+    // Resolve path to get inode and device
+    ret = kern_path(fpath, LOOKUP_FOLLOW, &path);
+    if (ret) {
+        PR_ERROR("Cannot resolve path %s\n", fpath);
+        return ret;
+    }
+
+    // Get inode and device
+    inode = path.dentry->d_inode;
+    if (!inode) {
+        PR_ERROR("Cannot get inode for path %s\n", fpath);
+        path_put(&path);
+        return -ENOENT;
+    }
+
     // Compute hash key
-    key_hash = full_name_hash(NULL, name, strlen(name));
+    key_hash = jhash_2words((u32) inode->i_ino, (u32) inode->i_sb->s_dev, PROG_HASH_SALT);
+
+    // Release path
+    path_put(&path);
 
     // Start critical section
     write_lock_irqsave(&prog_lock, flags);
 
-    PR_DEBUG("Searching program name %s to remove from monitoring list...\n", name);
+    PR_DEBUG("Searching program name %s to remove from monitoring list...\n", fpath);
     hash_for_each_possible_safe(progname_ht, cur, tmp, node, key_hash) {
-        if (strcmp(cur->name, name) == 0) {
+        if (cur->inode == inode->i_ino && cur->device == inode->i_sb->s_dev) {
             hash_del_rcu(&cur->node);
             atomic64_dec(&prog_count);
+#ifndef LOW_MEMORY
+            kfree(cur->fpath);
+#endif
             kfree_rcu(cur, rcu);
-            PR_DEBUG("Removed program name %s from monitoring list\n", name);
+            PR_DEBUG("Removed program name %s from monitoring list\n", fpath);
             ret = 0;
             goto prog_monitor_removed;
         }
     }
 
-    PR_WARN("Program name %s not monitored\n", name);
+    PR_WARN("Program name %s not monitored\n", fpath);
 
     // End critical section
 prog_monitor_removed:

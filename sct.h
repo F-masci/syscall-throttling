@@ -45,14 +45,17 @@
 #include <linux/sched.h>
 #include <linux/version.h>
 #include <linux/err.h>
+#include <linux/limits.h>
 
 #include "types.h"
 
 #define MODULE_NAME "SCT"
 
+#define TIMER_INTERVAL_S    10
+#define TIMER_INTERVAL_MS   (TIMER_INTERVAL_S * 1000)
 #define DEFAULT_STATUS      true
-#define DEFAULT_FAST_UNLOAD true
-#define DEFAULT_MAX_INVOKS  5
+#define DEFAULT_FAST_UNLOAD false
+#define DEFAULT_MAX_INVOKS  100
 
 #define PR_DEBUG(fmt, ...) pr_debug("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
 #define PR_DEBUG_PID(fmt, ...) PR_DEBUG("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)
@@ -66,4 +69,4 @@
 #define PR_ERROR(fmt, ...) pr_err("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
 #define PR_ERROR_PID(fmt, ...) PR_ERROR("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)
 
-#define MAX_ITEMS 1024
+#define PROG_HASH_SALT 0
