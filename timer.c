@@ -28,7 +28,7 @@ static struct timer_list timer;
  * 
  * @param t Pointer to the timer_list structure
  */
-void monitor_timer_callback(struct timer_list *t) {
+static void monitor_timer_callback(struct timer_list *t) {
 
     u64 old_invoks;
 
@@ -82,6 +82,10 @@ int start_monitor_timer(void) {
  */
 int stop_monitor_timer(void) {
     PR_DEBUG("Stopping monitor timer\n");
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,1,0)
     del_timer_sync(&timer);
+#else
+    timer_delete_sync(&timer);
+#endif
     return 0;
 }
