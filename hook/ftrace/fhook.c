@@ -89,11 +89,11 @@ static void notrace ftrace_handler(unsigned long ip, unsigned long parent_ip, st
 /**
  * @brief Initialize a syscall hook structure for ftrace hooking
  * 
- * @param hook Pointer to the hook_syscall_t structure
+ * @param hook Pointer to the struct hook_syscall_t structure
  * 
  * @return int 0 on success, negative error code on failure
  */
-int init_syscall_fhook(hook_syscall_t * hook) {
+int init_syscall_fhook(struct hook_syscall_t * hook) {
 
     int ret = 0;
 
@@ -120,11 +120,11 @@ int init_syscall_fhook(hook_syscall_t * hook) {
 /**
  * @brief Install a syscall hook using ftrace
  * 
- * @param hook Pointer to the hook_syscall_t structure
+ * @param hook Pointer to the struct hook_syscall_t structure
  * 
  * @return int 0 on success, negative error code on failure
  */
-int install_syscall_fhook(hook_syscall_t * hook) {
+int install_syscall_fhook(struct hook_syscall_t * hook) {
     
     int ret = 0;
 
@@ -180,11 +180,11 @@ filter_ip_err:
 /**
  * @brief Uninstall a syscall hook using ftrace
  * 
- * @param hook Pointer to the hook_syscall_t structure
+ * @param hook Pointer to the struct hook_syscall_t structure
  * 
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_syscall_fhook(hook_syscall_t * hook) {
+int uninstall_syscall_fhook(struct hook_syscall_t * hook) {
 
     int ret = 0;
 

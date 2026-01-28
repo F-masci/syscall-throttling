@@ -10,7 +10,7 @@
 #include <stdbool.h>
 
 // Include shared definitions
-// Ensure this file contains the updated structs (list_query_t, etc.)
+// Ensure this file contains the updated structs (struct list_query_t, etc.)
 #include "../opsc.h" 
 #include "errs.h"
 
@@ -95,14 +95,14 @@ int handle_get_list(int fd, target_type_t type) {
     size_t item_size;
     
     switch (type) {
-        case TARGET_SYSCALL: req = SCT_IOCTL_GET_SYSCALL_LIST; item_size = sizeof(scidx_t); break;
+        case TARGET_SYSCALL: req = SCT_IOCTL_GET_SYSCALL_LIST; item_size = sizeof(int); break;
         case TARGET_UID:     req = SCT_IOCTL_GET_UID_LIST;     item_size = sizeof(uid_t); break;
         case TARGET_PROG:    req = SCT_IOCTL_GET_PROG_LIST;    item_size = PATH_MAX; break; // Fixed size strings
         default: return -1;
     }
 
     // Prepare query structure
-    list_query_t query;
+    struct list_query_t query;
     query.max_items = INITIAL_LIST_CAPACITY;
     query.ptr = calloc(query.max_items, item_size);
     if (!query.ptr) {
@@ -139,7 +139,7 @@ int handle_get_list(int fd, target_type_t type) {
     printf("Fetched %zu items (Total available: %zu):\n", query.fetched_items, query.real_items);
     for (size_t i = 0; i < query.fetched_items; i++) {
         if (type == TARGET_SYSCALL) {
-            printf("  - [%zu] Syscall: %d\n", i, ((scidx_t*)query.ptr)[i]);
+            printf("  - [%zu] Syscall: %d\n", i, ((int*)query.ptr)[i]);
         } else if (type == TARGET_UID) {
             printf("  - [%zu] UID: %u\n", i, ((uid_t*)query.ptr)[i]);
         } else if (type == TARGET_PROG) {
@@ -287,9 +287,9 @@ int main(int argc, char **argv) {
     void *arg_ptr = NULL;
 
     // Output structures
-    monitor_status_t status_info;
-    throttling_stats_t stats_info;
-    sysc_delayed_t delay_info;
+    struct monitor_status_t status_info;
+    struct throttling_stats_t stats_info;
+    struct sysc_delayed_t delay_info;
 
     // Determine the correct IOCTL request and argument pointer
     switch(cfg.action) {

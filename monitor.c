@@ -441,7 +441,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
     
     unsigned long original_addr;
     asmlinkage long (*syscall)(struct pt_regs *);
-    scidx_t syscall_idx;
+    int syscall_idx;
 
     ktime_t start, end;
     s64 delay_ms;
@@ -455,7 +455,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 
     atomic_inc(&active_threads);
 
-    syscall_idx = (scidx_t) regs->orig_ax;
+    syscall_idx = (int) regs->orig_ax;
     if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE)) {
         PR_ERROR_PID("Invalid syscall index %d\n", syscall_idx);
         ret = -ENOSYS;

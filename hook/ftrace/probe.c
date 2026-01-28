@@ -66,7 +66,7 @@ int load_sys_ni_syscall_address(void) {
  * @param syscall_idx Syscall index
  * @return int 0 on success, negative error code on failure
  */
-static inline int __get_syscall_fullname(char *buf, size_t size, scidx_t syscall_idx) {
+static inline int __get_syscall_fullname(char *buf, size_t size, int syscall_idx) {
     
     const char *short_name = __get_syscall_name(syscall_idx);
     char prefix[PREFIX_BUF_LEN] = {0};
@@ -125,11 +125,11 @@ fullname_found:
 /**
  * @brief Get the syscall address by its index
  * 
- * @param hook Pointer to the hook_syscall_t structure
+ * @param hook Pointer to the struct hook_syscall_t structure
  * 
  * @return int 0 on success, negative error code on failure
  */
-int set_syscall_address(hook_syscall_t * hook) {
+int set_syscall_address(struct hook_syscall_t * hook) {
 
     char full_name[FNAME_BUF_SIZE];
     struct kprobe kp;

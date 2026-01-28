@@ -1,4 +1,5 @@
 .vscode/
+.vagrant/
 
 *WSL*
 
@@ -22,3 +23,5 @@ _syst.h
 
 !hook/discover/lib/*
 hook/discover/lib/.*
+
+checkpatch.pl

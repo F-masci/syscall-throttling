@@ -26,7 +26,7 @@
 #include "hook/discover/dhook.h"
 #endif
 
-static hook_syscall_t * syscall_hooks;
+static struct hook_syscall_t * syscall_hooks;
 static size_t syscall_hooks_num = 0;
 
 #ifdef _FTRACE_HOOKING
@@ -35,7 +35,7 @@ static DEFINE_MUTEX(hook_mutex);
 static DEFINE_SPINLOCK(hook_lock); 
 #endif
 
-static inline scidx_t scidx_sanity_check(scidx_t idx) {
+static inline int scidx_sanity_check(int idx) {
     if(unlikely(idx < 0 || idx >= syscall_hooks_num)) {
         PR_ERROR("Invalid syscall index %d\n", idx);
         return -ENOSYS;
@@ -52,16 +52,16 @@ static inline scidx_t scidx_sanity_check(scidx_t idx) {
 int setup_syscall_hooks(size_t num_syscalls) {
 
     int ret;
-    hook_syscall_t * hook;
+    struct hook_syscall_t * hook;
 
     // Allocate syscall hooks data structure
-    syscall_hooks = kmalloc_array(num_syscalls, sizeof(hook_syscall_t), GFP_KERNEL);
+    syscall_hooks = kmalloc_array(num_syscalls, sizeof(struct hook_syscall_t), GFP_KERNEL);
     if(!syscall_hooks) {
         PR_ERROR("Cannot allocate memory for syscall hooks\n");
         ret = -ENOMEM;
         goto hooks_alloc_err;
     }
-    memset(syscall_hooks, 0, num_syscalls * sizeof(hook_syscall_t));
+    memset(syscall_hooks, 0, num_syscalls * sizeof(struct hook_syscall_t));
     PR_DEBUG("Syscall hooks data structure allocated\n");
 
     // Setup hooking method
@@ -82,7 +82,7 @@ int setup_syscall_hooks(size_t num_syscalls) {
     // Init discover hooking structures
     // Fill hook structures for each syscall
     // with both common and hook-specific data
-    for(scidx_t idx = 0; idx < num_syscalls; idx++) {
+    for(int idx = 0; idx < num_syscalls; idx++) {
         hook = &syscall_hooks[idx];
         hook->syscall_idx = idx;
         hook->hook_addr = (unsigned long) syscall_wrapper;
@@ -160,12 +160,12 @@ void cleanup_syscall_hooks(void) {
  * @param syscall_idx Syscall number to hook
  * @return int 0 on success, negative error code on failure
  */
-int install_syscall_hook(scidx_t syscall_idx) {
+int install_syscall_hook(int syscall_idx) {
 #ifdef _FTRACE_HOOKING
 #elif defined(_DISCOVER_HOOKING)
     unsigned long flags;
 #endif
-    hook_syscall_t * hook;
+    struct hook_syscall_t * hook;
     int ret = 0;
 
     // Sanity check syscall index
@@ -233,12 +233,12 @@ installed_hook:
  */
 int install_monitored_syscalls_hooks(void) {
 
-    scidx_t *syscall_list;
+    int *syscall_list;
     size_t syscall_count;
     int ret = 0;
 
     // Get monitored syscalls
-    syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(scidx_t), GFP_KERNEL);
+    syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(int), GFP_KERNEL);
     if (!syscall_list) {
         PR_ERROR("Failed to allocate memory for syscall list\n");
         return -ENOMEM;
@@ -270,9 +270,9 @@ int install_monitored_syscalls_hooks(void) {
  * @param syscall_idx Syscall number
  * @return unsigned long Original syscall address, or NULL on failure
  */
-inline unsigned long get_original_syscall_address(scidx_t syscall_idx) {
+inline unsigned long get_original_syscall_address(int syscall_idx) {
 
-    hook_syscall_t * hook;
+    struct hook_syscall_t * hook;
 
     syscall_idx = scidx_sanity_check(syscall_idx);
     if(syscall_idx < 0) return (unsigned long) NULL;
@@ -298,12 +298,12 @@ inline unsigned long get_original_syscall_address(scidx_t syscall_idx) {
  * @param syscall_idx Syscall number to unhook
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_syscall_hook(scidx_t syscall_idx) {
+int uninstall_syscall_hook(int syscall_idx) {
 #ifdef _FTRACE_HOOKING
 #elif defined(_DISCOVER_HOOKING)
     unsigned long flags;
 #endif
-    hook_syscall_t * hook;
+    struct hook_syscall_t * hook;
     int ret = 0;
 
     // Sanity check syscall index
@@ -370,7 +370,7 @@ int uninstall_active_syscalls_hooks(void) {
 
     // Uninstall active hooks
     PR_DEBUG("Uninstalling all active syscall hooks...\n");
-    for(scidx_t i = 0; i < syscall_hooks_num; i++) {
+    for(int i = 0; i < syscall_hooks_num; i++) {
 
         // Check if hook is active
         if(syscall_hooks[i].active) {

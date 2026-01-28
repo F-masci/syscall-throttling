@@ -29,11 +29,11 @@ void cleanup_monitor_filter(void);
 /* ---- SYS CALL MONITORING ---- */
 
 size_t get_syscall_monitor_num(void);
-size_t get_syscall_monitor_vals(scidx_t *, size_t);
+size_t get_syscall_monitor_vals(int *, size_t);
 
-inline bool is_syscall_monitored(scidx_t);
-void add_syscall_monitoring(scidx_t);
-void remove_syscall_monitoring(scidx_t);
+inline bool is_syscall_monitored(int);
+void add_syscall_monitoring(int);
+void remove_syscall_monitoring(int);
 
 /* ---- UIDS MONITORING ---- */
 

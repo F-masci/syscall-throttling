@@ -70,9 +70,9 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
     bool status, fast_unload;
     u64 max_invoks, cur_invoks;
     u64 peak_blocked, avg_blocked, windows_num;
-    sysc_delayed_t peak_delay;
+    struct sysc_delayed_t peak_delay;
 
-    scidx_t *syscall_list;
+    int *syscall_list;
     size_t syscall_count;
 
     uid_t *uid_list; 
@@ -104,7 +104,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
     // Allocate temporary syscall list
     syscall_count = get_syscall_monitor_num();
-    syscall_list = kmalloc_array(syscall_count, sizeof(scidx_t), GFP_KERNEL);
+    syscall_list = kmalloc_array(syscall_count, sizeof(int), GFP_KERNEL);
     if (!syscall_list) {
         PR_ERROR("Failed to allocate memory for syscall list\n");
         goto alloc_syscall_list_err;
@@ -279,22 +279,22 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
     long ret = 0;
 
     // Temporary variables for various IOCTL write operations
-    scidx_t k_syscall_idx;
+    int k_syscall_idx;
     uid_t k_uid;
     char *k_progname;
 
     // Temporary variables for various IOCTL read operations
-    monitor_status_t k_status_info;
-    throttling_stats_t k_stats_info;
-    sysc_delayed_t k_delay_info;
-    list_query_t k_query;
+    struct monitor_status_t k_status_info;
+    struct throttling_stats_t k_stats_info;
+    struct sysc_delayed_t k_delay_info;
+    struct list_query_t k_query;
 
     // Temporary variables for various IOCTL configuration operations
     u64 k_max_invoks;
     bool k_status;
 
     // Temporary lists for fetching monitored items
-    scidx_t *tmp_syscall_list = NULL;
+    int *tmp_syscall_list = NULL;
     uid_t *tmp_uid_list = NULL;
     char **tmp_prog_list = NULL;
     size_t fetched_count, real_items, i, flat_prog_buf_size, flat_prog_buf_offset;
@@ -312,7 +312,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         /* --- ADD COMMANDS --- */
 
         case SCT_IOCTL_ADD_SYSCALL:
-            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) {
+            if (copy_from_user(&k_syscall_idx, (int __user *)arg, sizeof(k_syscall_idx))) {
                 PR_ERROR("Failed to copy syscall index from user\n");
                 return -EFAULT;
             }
@@ -400,7 +400,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
         
         case SCT_IOCTL_GET_SYSCALL_LIST:
-            // The user provides a list_query_t struct with:
+            // The user provides a struct list_query_t struct with:
             // - ptr: pointer to user buffer to fill
             // - max_items: maximum number of items that can be stored in the buffer
             // The kernel fills the buffer and updates real_items with the actual number of items copied
@@ -413,7 +413,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 
             // Allocate temporary array to fetch syscalls
             real_items = get_syscall_monitor_num();
-            tmp_syscall_list = kmalloc_array(real_items, sizeof(scidx_t), GFP_KERNEL);
+            tmp_syscall_list = kmalloc_array(real_items, sizeof(int), GFP_KERNEL);
             if (!tmp_syscall_list) {
                 PR_ERROR("Failed to allocate memory for syscall list\n");
                 return -ENOMEM;
@@ -425,7 +425,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             if (k_query.max_items < fetched_count) fetched_count = k_query.max_items;
 
             // Copy syscall list to user buffer
-            if (copy_to_user(k_query.ptr, tmp_syscall_list, fetched_count * sizeof(scidx_t))) {
+            if (copy_to_user(k_query.ptr, tmp_syscall_list, fetched_count * sizeof(int))) {
                 PR_ERROR("Failed to copy syscall list to user buffer\n");
                 ret = -EFAULT;
                 goto send_syscall_err;
@@ -445,7 +445,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             break;
 
         case SCT_IOCTL_GET_UID_LIST:
-            // The user provides a list_query_t struct with:
+            // The user provides a struct list_query_t struct with:
             // - ptr: pointer to user buffer to fill
             // - max_items: maximum number of items that can be stored in the buffer
             // The kernel fills the buffer and updates real_items with the actual number of items copied
@@ -489,7 +489,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
             break;
 
         case SCT_IOCTL_GET_PROG_LIST:
-            // The user provides a list_query_t struct with:
+            // The user provides a struct list_query_t struct with:
             // - ptr: pointer to user buffer to fill
             // - max_items: maximum number of items that can be stored in the buffer
             // The kernel fills the buffer and updates real_items with the actual number of items copied
@@ -570,7 +570,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
         /* --- REMOVE COMMANDS --- */
 
         case SCT_IOCTL_DEL_SYSCALL:
-            if (copy_from_user(&k_syscall_idx, (scidx_t __user *)arg, sizeof(k_syscall_idx))) {
+            if (copy_from_user(&k_syscall_idx, (int __user *)arg, sizeof(k_syscall_idx))) {
                 PR_ERROR("Failed to copy syscall index from user\n");
                 return -EFAULT;
             }

@@ -34,17 +34,17 @@ MOK_DER  	:= $(PWD)/keys/MOK.der
 
 # --- SEZIONE KBUILD ---
 ifneq ($(KERNELRELEASE),)
-    obj-m := $(MODULE_NAME).o
-    $(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o
+	obj-m := $(MODULE_NAME).o
+	$(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o
 	ccflags-y := -std=gnu11 $(DBG_DEFINE) -D$(SYNC_METHOD)
 
 	ifeq ($(ENABLE_FTRACE), 1)
-        $(MODULE_NAME)-y += $(HFTRACE_DIR)/fhook.o $(HFTRACE_DIR)/probe.o
-        ccflags-y 		 += -DFTRACE_HOOKING -I$(src)/$(HFTRACE_DIR)
+		$(MODULE_NAME)-y += $(HFTRACE_DIR)/fhook.o $(HFTRACE_DIR)/probe.o
+		ccflags-y 		 += -DFTRACE_HOOKING -I$(src)/$(HFTRACE_DIR)
 	else
 		$(MODULE_NAME)-y += $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o
 		ccflags-y 		 += -DDISCOVER_HOOKING -I$(src)/$(HDISC_DIR) -I$(src)/$(HDISC_DIR)/lib
-    endif
+	endif
 
 	ifeq ($(ENABLE_LOWMEM), 1)
 		ccflags-y 		 += -DLOW_MEMORY
@@ -52,9 +52,9 @@ ifneq ($(KERNELRELEASE),)
 
 # --- SEZIONE USERSPACE ---
 else
-    KDIR := /lib/modules/$(shell uname -r)/build
-    PWD := $(shell pwd)
-    SIGN_FILE := $(KDIR)/scripts/sign-file
+	KDIR := /lib/modules/$(shell uname -r)/build
+	PWD := $(shell pwd)
+	SIGN_FILE := $(KDIR)/scripts/sign-file
 
 all:
 
@@ -127,22 +127,70 @@ load:
 unload:
 	@echo "=== Unloading main module: $(MODULE_NAME) ==="
 	@if lsmod | grep -q "^$(MODULE_NAME)"; then \
-        echo "Unloading $(MODULE_NAME)..."; \
-        sudo rmmod $(MODULE_NAME); \
-    else \
-        echo "$(MODULE_NAME) not loaded."; \
-    fi
+		echo "Unloading $(MODULE_NAME)..."; \
+		sudo rmmod $(MODULE_NAME); \
+	else \
+		echo "$(MODULE_NAME) not loaded."; \
+	fi
 
 	@echo "Modules unloaded successfully.";
 
 clean:
 	@echo "=== Cleaning main module... ===";
 	$(MAKE) -C $(KDIR) M=$(OUT_DIR) src=$(PWD) clean
-    
+	
 	rm -rf $(OUT_DIR)
 	rm -f $(HDISC_DIR)/*.o $(HDISC_DIR)/.*.cmd
 	rm -f $(HFTRACE_DIR)/*.o $(HFTRACE_DIR)/.*.cmd
 
 	@echo "Clean completed."
+
+check: checkpatch cppcheck sparse
+
+checkpatch:
+	@echo "\n=== Running Checkpatch ==="
+	@# If checkpatch.pl is not present, download it
+	@if [ ! -f checkpatch.pl ]; then \
+		echo "Downloading checkpatch.pl..."; \
+		wget -q $(CHECKPATCH_URL); \
+		chmod +x checkpatch.pl; \
+	fi
+	@# Run checkpatch on all .c and .h files
+	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES --terse -f $$(find . \( -path ./_examples -o -path ./out \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
+
+cppcheck:
+	@echo "\n=== Running Cppcheck ==="
+	@# --force: analyze all files even if there are errors
+	@# --inline-suppr: allows suppressing errors via comments in the code
+	@# --check-level=exhaustive: enable more thorough checks
+	@cppcheck --enable=warning,performance,portability --force --quiet --inline-suppr --check-level=exhaustive -i _examples . || true
+
+sparse:
+	@echo "\n=== Running Sparse Analysis ==="
+	@# Clean build files first
+	@$(MAKE) -C $(KDIR) M=$(PWD) clean > /dev/null
+	@# C=1 enables Sparse. W=1 enables extra GCC warnings
+	@$(MAKE) -C $(KDIR) M=$(PWD) C=1 W=1 modules
+	@# Post-analysis cleanup to avoid leaving stray .o files
+	@$(MAKE) -C $(KDIR) M=$(PWD) clean > /dev/null
+
+vm-test:
+	@echo "=== Start test in Vagrant VM ==="
+	vagrant up
+
+	@echo "--- Running tests in Vagrant VM ---"
+	vagrant ssh -c "cd /home/vagrant/module && \
+		make clean && \
+		make && \
+		echo '--- Loading Module ---' && \
+		sudo insmod out/$(MODULE_NAME).ko && \
+		echo '--- Compiling Client ---' && \
+		cd client && make && \
+		echo '--- Running Client Test ---' && \
+		sudo ./client test && \
+		echo '--- Unloading Module ---' && \
+		sudo rmmod $(MODULE_NAME)"
+
+	@echo "=== Test in VM completed ==="
 
 endif

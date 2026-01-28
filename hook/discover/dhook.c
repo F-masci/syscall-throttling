@@ -22,11 +22,11 @@
 /**
  * @brief Initialize a syscall hook structure for discover hooking
  * 
- * @param hook Pointer to the hook_syscall_t structure
+ * @param hook Pointer to the struct hook_syscall_t structure
  * 
  * @return int 0 on success, negative error code on failure
  */
-int init_syscall_dhook(hook_syscall_t * hook) {
+int init_syscall_dhook(struct hook_syscall_t * hook) {
 
     unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
 
@@ -56,11 +56,11 @@ int init_syscall_dhook(hook_syscall_t * hook) {
 /**
  * @brief Install a syscall hook using discover
  * 
- * @param hook Pointer to the hook_syscall_t structure
+ * @param hook Pointer to the struct hook_syscall_t structure
  * 
  * @return int 0 on success, negative error code on failure
  */
-int install_syscall_dhook(hook_syscall_t * hook) {
+int install_syscall_dhook(struct hook_syscall_t * hook) {
     
     unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
     // unsigned long * original_syscall_addrs = get_original_syscall_addrs();
@@ -113,11 +113,11 @@ int install_syscall_dhook(hook_syscall_t * hook) {
 /**
  * @brief Remove a syscall hook using discover
  * 
- * @param hook Pointer to the hook_syscall_t structure
+ * @param hook Pointer to the struct hook_syscall_t structure
  * 
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_syscall_dhook(hook_syscall_t * hook) {
+int uninstall_syscall_dhook(struct hook_syscall_t * hook) {
 
     unsigned long hook_addr;
 

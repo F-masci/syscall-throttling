@@ -18,12 +18,12 @@
 
 struct peak_wrapper {
     struct rcu_head rcu;
-    sysc_delayed_t data;
+    struct sysc_delayed_t data;
 };
 
 struct stats_wrapper {
     struct rcu_head rcu;
-    wstats_t data;
+    struct wstats_t data;
 };
 
 static struct peak_wrapper __rcu *peakd_ptr  = NULL;
@@ -31,8 +31,8 @@ static struct stats_wrapper __rcu *stats_ptr = NULL;
 
 #elif defined _SPINLOCK_PROTECTED
 
-static sysc_delayed_t peak_ds   = {0};
-static wstats_t wstats          = {0, 0, 0};
+static struct sysc_delayed_t peak_ds   = {0};
+static struct wstats_t wstats          = {0, 0, 0};
 
 #endif
 
@@ -99,7 +99,7 @@ void cleanup_monitor_stats(void) {
  * 
  * @param _out Output structure to fill with peak delayed syscall info
  */
-void get_peak_delayed_syscall(sysc_delayed_t *_out) {
+void get_peak_delayed_syscall(struct sysc_delayed_t *_out) {
 #ifdef _RCU_PROTECTED
     struct peak_wrapper *peak_ptr;
 #elif defined _SPINLOCK_PROTECTED
@@ -113,11 +113,11 @@ void get_peak_delayed_syscall(sysc_delayed_t *_out) {
 #ifdef _RCU_PROTECTED
     rcu_read_lock();
     peak_ptr = rcu_dereference(peakd_ptr);
-    if(peak_ptr) memcpy(_out, &peak_ptr->data, sizeof(sysc_delayed_t));
+    if(peak_ptr) memcpy(_out, &peak_ptr->data, sizeof(struct sysc_delayed_t));
     rcu_read_unlock();
 #elif defined _SPINLOCK_PROTECTED
     read_lock_irqsave(&peakd_lock, flags);
-    memcpy(_out, &peak_ds, sizeof(sysc_delayed_t));
+    memcpy(_out, &peak_ds, sizeof(struct sysc_delayed_t));
     read_unlock_irqrestore(&peakd_lock, flags);
 #endif
 }
@@ -133,7 +133,7 @@ void get_peak_delayed_syscall(sysc_delayed_t *_out) {
  * 
  * @return bool True if updated, false otherwise
  */
-bool update_peak_delay(s64 delay_ms, scidx_t syscall) {
+bool update_peak_delay(s64 delay_ms, int syscall) {
 
     unsigned long flags;
     char * prog_name = NULL;
@@ -164,7 +164,7 @@ bool update_peak_delay(s64 delay_ms, scidx_t syscall) {
 #ifdef _RCU_PROTECTED
     // Re-check with lock
     old_peak_ptr = rcu_dereference_protected(peakd_ptr, lockdep_is_held(&peakd_lock));
-    PR_DEBUG("Checking for peak delayed syscall update: current peak %lld ms, new delay %lld ms\n", old_peak_ptr->data.delay_ms, delay_ms);
+    PR_DEBUG("Checking for peak delayed syscall update: current peak %lld ms, new delay %lld ms\n", old_peak_ptr ? old_peak_ptr->data.delay_ms : 0, delay_ms);
     if (likely(old_peak_ptr && delay_ms > old_peak_ptr->data.delay_ms)) {
         // Free old program name
         if (old_peak_ptr->data.prog_name) {
@@ -258,7 +258,7 @@ int reset_peak_delay(void) {
     rcu_assign_pointer(peakd_ptr, new_peak_ptr);
     if (old_peak_ptr) kfree_rcu(old_peak_ptr, rcu);
 #elif defined _SPINLOCK_PROTECTED
-    memset(&peak_ds, 0, sizeof(sysc_delayed_t));
+    memset(&peak_ds, 0, sizeof(struct sysc_delayed_t));
     peak_ds.syscall = -1;
 #endif
     
@@ -380,7 +380,7 @@ u64 get_peakw_blocked(void) {
  * @return u64 
  */
 u64 get_avgw_blocked(u64 scale) {
-    u64 sum, count;
+    u64 sum = 0, count = 0;
 #ifdef _RCU_PROTECTED
     struct stats_wrapper *sptr;
 #elif defined _SPINLOCK_PROTECTED
@@ -505,7 +505,7 @@ int reset_stats_blocked(void) {
     if (old_stats) kfree_rcu(old_stats, rcu);
 
 #elif defined _SPINLOCK_PROTECTED
-    memset(&wstats, 0, sizeof(wstats_t));
+    memset(&wstats, 0, sizeof(struct wstats_t));
 #endif
 
     write_unlock_irqrestore(&stats_lock, flags);

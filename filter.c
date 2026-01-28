@@ -52,9 +52,9 @@ void setup_monitor_filter(void) {
  */
 void cleanup_monitor_filter(void) {
     
-    struct uid_node *cur_uid;
+    struct uid_node *cur_uid = NULL;
     struct hlist_node *tmp_uid;
-    struct prog_node *cur_pn;
+    struct prog_node *cur_pn = NULL;
     struct hlist_node *tmp_pn;
     int bkt;
 
@@ -101,7 +101,7 @@ size_t get_syscall_monitor_num() {
  * 
  * @return size_t Number of syscall numbers retrieved
  */
-size_t get_syscall_monitor_vals(scidx_t *buf, size_t max_size) {
+size_t get_syscall_monitor_vals(int *buf, size_t max_size) {
     unsigned long flags;
     unsigned long i;
     size_t count = 0;
@@ -128,7 +128,7 @@ size_t get_syscall_monitor_vals(scidx_t *buf, size_t max_size) {
  * @param syscall_nr Syscall number to check
  * @return bool True if monitored, false otherwise
  */
-inline bool is_syscall_monitored(scidx_t syscall_idx) {
+inline bool is_syscall_monitored(int syscall_idx) {
     return test_bit(syscall_idx, syscall_bm);
 }
 
@@ -137,7 +137,7 @@ inline bool is_syscall_monitored(scidx_t syscall_idx) {
  * 
  * @param syscall_idx Syscall number to add
  */
-void add_syscall_monitoring(scidx_t syscall_idx) {
+void add_syscall_monitoring(int syscall_idx) {
     unsigned long flags;
 
     // Sanity check
@@ -170,7 +170,7 @@ syscall_monitored:
  * 
  * @param syscall_idx Syscall number to remove
  */
-void remove_syscall_monitoring(scidx_t syscall_idx) {
+void remove_syscall_monitoring(int syscall_idx) {
     unsigned long flags;
 
     // Sanity check
@@ -219,7 +219,7 @@ size_t get_uid_monitor_num() {
 size_t get_uid_monitor_vals(uid_t *buf, size_t max_size) {
     
     unsigned long flags;
-    struct uid_node *cur;
+    struct uid_node *cur = NULL;
     int bkt;
     int count = 0;
 
@@ -247,7 +247,7 @@ size_t get_uid_monitor_vals(uid_t *buf, size_t max_size) {
  */
 inline bool is_uid_monitored(uid_t uid) {
 
-    struct uid_node *cur;
+    struct uid_node *cur = NULL;
     bool found = false;
 
     // RCU read section
@@ -317,7 +317,7 @@ uid_monitored:
 int remove_uid_monitoring(uid_t uid) {
 
     unsigned long flags;
-    struct uid_node *cur;
+    struct uid_node *cur = NULL;
     struct hlist_node *tmp;
     int ret = -ENOENT;
     
@@ -416,7 +416,7 @@ size_t get_prog_monitor_num() {
 size_t get_prog_monitor_vals(char **buf, size_t max_size) {
 
     unsigned long flags;
-    struct prog_node *cur;
+    struct prog_node *cur = NULL;
     int bkt;
     size_t count = 0;
     char * fpath;
@@ -474,7 +474,7 @@ size_t get_prog_monitor_vals(char **buf, size_t max_size) {
  */
 inline bool is_prog_monitored(unsigned long inode, dev_t device) {
 
-    struct prog_node *cur;
+    struct prog_node *cur = NULL;
     bool found = false;
     u32 key_hash;
 
@@ -598,7 +598,7 @@ prog_monitored:
 int remove_prog_monitoring(const char *fpath) {
 
     unsigned long flags;
-    struct prog_node *cur;
+    struct prog_node *cur = NULL;
     struct path path;
     struct inode *inode;
     struct hlist_node *tmp;

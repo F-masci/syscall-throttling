@@ -4,6 +4,6 @@
 
 #include "../../types.h"
 
-int init_syscall_dhook(hook_syscall_t *);
-int install_syscall_dhook(hook_syscall_t *);
-int uninstall_syscall_dhook(hook_syscall_t *);
+int init_syscall_dhook(struct hook_syscall_t *);
+int install_syscall_dhook(struct hook_syscall_t *);
+int uninstall_syscall_dhook(struct hook_syscall_t *);
