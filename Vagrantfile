@@ -8,7 +8,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     config.vm.box = "generic/ubuntu2204"
 
     # Syncronize folder
-    config.vm.synced_folder ".", "/home/vagrant/module"
+    config.vm.synced_folder ".", "/home/vagrant/module", type: "nfs", nfs_version: 4, nfs_udp: false, mount_options: ["actimeo=1"]
 
     # Specific config for libvirt provider
     config.vm.provider :libvirt do |libvirt|
@@ -27,7 +27,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     config.vm.provision "shell", inline: <<-SHELL
         export DEBIAN_FRONTEND=noninteractive
         apt-get -y update
-        apt-get install -y build-essential linux-headers-$(uname -r) libelf-dev
+        apt-get install -y build-essential linux-headers-$(uname -r) libelf-dev nfs-common
 
         echo "--------------------------------------------------"
         echo "Ubuntu is ready!"

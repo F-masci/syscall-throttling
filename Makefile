@@ -182,20 +182,32 @@ format:
 
 vm-test:
 	@echo "=== Start test in Vagrant VM ==="
-	vagrant up
+	# vagrant up
 
-	@echo "--- Running tests in Vagrant VM ---"
-	vagrant ssh -c "cd /home/vagrant/module && \
-		make clean && \
-		make && \
+	@echo "--- Compiling in Vagrant VM ---"
+	vagrant ssh -c "mkdir -p /home/vagrant/test && \
+		sudo cp /home/vagrant/module/* /home/vagrant/test -R && \
+		cd /home/vagrant/test && \
 		echo '--- Loading Module ---' && \
-		sudo insmod out/$(MODULE_NAME).ko && \
+		sudo make clean && \
+		sudo make ENABLE_FTRACE=1 && \
+		sudo make load && \
 		echo '--- Compiling Client ---' && \
-		cd client && make && \
+		cd client && make"
+
+	@echo "--- Setup test in Vagrant VM ---"
+	vagrant ssh -c "cd /home/vagrant/test/client && \
+		echo '--- Setup Client Test ---' && \
+		./setup.sh"
+	
+	@echo "--- Running Test in Vagrant VM ---"
+	vagrant ssh -c "cd /home/vagrant/test/client && \
 		echo '--- Running Client Test ---' && \
-		sudo ./client test && \
+		timeout 40s /home/vagrant/test/client/pause & \
+		timeout 20s /home/vagrant/test/client/test.sh || true && \
 		echo '--- Unloading Module ---' && \
-		sudo rmmod $(MODULE_NAME)"
+		cd /home/vagrant/test && \
+		sudo make unload"
 
 	@echo "=== Test in VM completed ==="
 
