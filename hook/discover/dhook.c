@@ -1,4 +1,4 @@
-s/**
+/**
  * @file dhook.c
  * @author Francesco Masci (francescomasci@outlook.com)
  *
@@ -26,9 +26,9 @@ s/**
  *
  * @return int 0 on success, negative error code on failure
  */
-int init_syscall_dhook(struct hook_syscall_t * hook) {
-
-	unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
+int init_syscall_dhook(struct hook_syscall_t *hook)
+{
+	unsigned long **hacked_syscall_tbl = get_syscall_table_addr();
 
 	// Check for valid pointer
 	if (unlikely(!hook)) {
@@ -43,7 +43,7 @@ int init_syscall_dhook(struct hook_syscall_t * hook) {
 	}
 
 	// Init hook structure
-	hook->original_addr = (unsigned long) hacked_syscall_tbl[hook->syscall_idx];
+	hook->original_addr = (unsigned long)hacked_syscall_tbl[hook->syscall_idx];
 	if (!hook->original_addr) {
 		PR_WARN("Original syscall address is NULL for syscall %d\n", hook->syscall_idx);
 		hook->nil_syscall = true;
@@ -60,9 +60,9 @@ int init_syscall_dhook(struct hook_syscall_t * hook) {
  *
  * @return int 0 on success, negative error code on failure
  */
-int install_syscall_dhook(struct hook_syscall_t * hook) {
-
-	unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
+int install_syscall_dhook(struct hook_syscall_t *hook)
+{
+	unsigned long **hacked_syscall_tbl = get_syscall_table_addr();
 	// unsigned long * original_syscall_addrs = get_original_syscall_addrs();
 
 	// Check for valid pointer
@@ -96,7 +96,7 @@ int install_syscall_dhook(struct hook_syscall_t * hook) {
 	// original_syscall_addrs[syscall_idx] = (unsigned long)hacked_syscall_tbl[syscall_idx];
 
 	// Install the hook
-	hacked_syscall_tbl[hook->syscall_idx] = (unsigned long *) hook->hook_addr;
+	hacked_syscall_tbl[hook->syscall_idx] = (unsigned long *)hook->hook_addr;
 
 	end_syscall_table_hack();
 	PR_DEBUG("Syscall table hacking ended for syscall %d\n", hook->syscall_idx);
@@ -117,11 +117,11 @@ int install_syscall_dhook(struct hook_syscall_t * hook) {
  *
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_syscall_dhook(struct hook_syscall_t * hook) {
-
+int uninstall_syscall_dhook(struct hook_syscall_t *hook)
+{
 	unsigned long hook_addr;
 
-	unsigned long ** hacked_syscall_tbl = get_syscall_table_addr();
+	unsigned long **hacked_syscall_tbl = get_syscall_table_addr();
 
 	// Check for valid pointer
 	if (unlikely(!hook)) {
@@ -142,7 +142,7 @@ int uninstall_syscall_dhook(struct hook_syscall_t * hook) {
 	}
 
 	// Get the current hook address
-	hook_addr = (unsigned long) hacked_syscall_tbl[hook->syscall_idx];
+	hook_addr = (unsigned long)hacked_syscall_tbl[hook->syscall_idx];
 
 	// Check if the hook is currently installed
 	if (unlikely(!hook->active || hook_addr != hook->hook_addr)) {
@@ -154,7 +154,7 @@ int uninstall_syscall_dhook(struct hook_syscall_t * hook) {
 	PR_DEBUG("Syscall table hacking started for syscall %d\n", hook->syscall_idx);
 
 	// Restore the original syscall address
-	hacked_syscall_tbl[hook->syscall_idx] = (unsigned long *) hook->original_addr;
+	hacked_syscall_tbl[hook->syscall_idx] = (unsigned long *)hook->original_addr;
 
 	end_syscall_table_hack();
 	PR_DEBUG("Syscall table hacking ended for syscall %d\n", hook->syscall_idx);

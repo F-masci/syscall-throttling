@@ -32,13 +32,7 @@ typedef enum {
 } action_t;
 
 // Enum defining the type of data being targeted
-typedef enum {
-	TARGET_NONE,
-	TARGET_SYSCALL,
-	TARGET_UID,
-	TARGET_PROG,
-	TARGET_GENERIC_VAL
-} target_type_t;
+typedef enum { TARGET_NONE, TARGET_SYSCALL, TARGET_UID, TARGET_PROG, TARGET_GENERIC_VAL } target_type_t;
 
 // Configuration structure holding parsed arguments
 struct config {
@@ -55,7 +49,8 @@ struct config {
 	} value;
 };
 
-void print_usage(const char *prog_name) {
+void print_usage(const char *prog_name)
+{
 	printf("Usage: %s [OPTIONS] <command>\n\n", prog_name);
 	printf("Description:\n");
 	printf("  Client to configure the System Call Throttling module.\n\n");
@@ -90,15 +85,26 @@ void print_usage(const char *prog_name) {
 }
 
 // Helper function to handle list retrieval with dynamic reallocation
-int handle_get_list(int fd, target_type_t type) {
+int handle_get_list(int fd, target_type_t type)
+{
 	unsigned long req;
 	size_t item_size;
 
 	switch (type) {
-		case TARGET_SYSCALL: req = SCT_IOCTL_GET_SYSCALL_LIST; item_size = sizeof(int); break;
-		case TARGET_UID:	 req = SCT_IOCTL_GET_UID_LIST;	 item_size = sizeof(uid_t); break;
-		case TARGET_PROG:	req = SCT_IOCTL_GET_PROG_LIST;	item_size = PATH_MAX; break; // Fixed size strings
-		default: return -1;
+	case TARGET_SYSCALL:
+		req = SCT_IOCTL_GET_SYSCALL_LIST;
+		item_size = sizeof(int);
+		break;
+	case TARGET_UID:
+		req = SCT_IOCTL_GET_UID_LIST;
+		item_size = sizeof(uid_t);
+		break;
+	case TARGET_PROG:
+		req = SCT_IOCTL_GET_PROG_LIST;
+		item_size = PATH_MAX;
+		break; // Fixed size strings
+	default:
+		return -1;
 	}
 
 	// Prepare query structure
@@ -124,7 +130,8 @@ int handle_get_list(int fd, target_type_t type) {
 		free(query.ptr);
 		query.max_items = query.real_items;
 		query.ptr = calloc(query.max_items, item_size);
-		if (!query.ptr) return MEMORY_ALLOCATION_ERROR;
+		if (!query.ptr)
+			return MEMORY_ALLOCATION_ERROR;
 
 		// Second attempt
 		if (ioctl(fd, req, &query) < 0) {
@@ -135,13 +142,13 @@ int handle_get_list(int fd, target_type_t type) {
 	}
 
 	// Print results
-	char *current_ptr = (char *) query.ptr;
+	char *current_ptr = (char *)query.ptr;
 	printf("Fetched %zu items (Total available: %zu):\n", query.fetched_items, query.real_items);
 	for (size_t i = 0; i < query.fetched_items; i++) {
 		if (type == TARGET_SYSCALL) {
-			printf("  - [%zu] Syscall: %d\n", i, ((int*)query.ptr)[i]);
+			printf("  - [%zu] Syscall: %d\n", i, ((int *)query.ptr)[i]);
 		} else if (type == TARGET_UID) {
-			printf("  - [%zu] UID: %u\n", i, ((uid_t*)query.ptr)[i]);
+			printf("  - [%zu] UID: %u\n", i, ((uid_t *)query.ptr)[i]);
 		} else if (type == TARGET_PROG) {
 			// Calculate pointer to the i-th string
 			printf("  - [%zu] Program: %s\n", i, current_ptr);
@@ -153,59 +160,56 @@ int handle_get_list(int fd, target_type_t type) {
 	return 0;
 }
 
-int main(int argc, char **argv) {
-
+int main(int argc, char **argv)
+{
 	// Setup default configuration
-	struct config cfg = {
-		.device_path	= DEFAULT_DEVICE,
-		.action		 = ACTION_NONE,
-		.target_type	= TARGET_NONE
-	};
+	struct config cfg = { .device_path = DEFAULT_DEVICE, .action = ACTION_NONE, .target_type = TARGET_NONE };
 
 	int opt;
 	int option_index = 0;
 
 	// Long options structure
 	// FIX: Changed optional_argument to required_argument to support space separation (e.g., --prog mkdir)
-	static struct option long_options[] = {
-		{"dev",  required_argument, 0, 'd'},
-		{"sys",  required_argument, 0, 's'},
-		{"uid",  required_argument, 0, 'u'},
-		{"prog", required_argument, 0, 'p'},
-		{"val",  required_argument, 0, 'v'},
-		{"help", no_argument,	   0, 'h'},
-		{0, 0, 0, 0}
-	};
+	static struct option long_options[] = { { "dev", required_argument, 0, 'd' },
+						{ "sys", required_argument, 0, 's' },
+						{ "uid", required_argument, 0, 'u' },
+						{ "prog", required_argument, 0, 'p' },
+						{ "val", required_argument, 0, 'v' },
+						{ "help", no_argument, 0, 'h' },
+						{ 0, 0, 0, 0 } };
 
 	// Parsing command-line arguments
 	// FIX: Removed double colons (::) to enforce required arguments
 	while ((opt = getopt_long(argc, argv, "d:s:u:p:v:h", long_options, &option_index)) != -1) {
 		switch (opt) {
-			case 'd':
-				cfg.device_path = optarg;
-				break;
-			case 's':
-				cfg.target_type = TARGET_SYSCALL;
-				if (optarg) cfg.value.syscall_nr = atoi(optarg);
-				break;
-			case 'u':
-				cfg.target_type = TARGET_UID;
-				if (optarg) cfg.value.uid = (unsigned int)strtoul(optarg, NULL, 10);
-				break;
-			case 'p':
-				cfg.target_type = TARGET_PROG;
-				if (optarg) cfg.value.prog_name = optarg;
-				break;
-			case 'v':
-				cfg.target_type = TARGET_GENERIC_VAL;
-				cfg.value.limit = strtoul(optarg, NULL, 10);
-				break;
-			case 'h':
-				print_usage(argv[0]);
-				return 0;
-			default:
-				print_usage(argv[0]);
-				return INVALID_ARGUMENTS_ERROR;
+		case 'd':
+			cfg.device_path = optarg;
+			break;
+		case 's':
+			cfg.target_type = TARGET_SYSCALL;
+			if (optarg)
+				cfg.value.syscall_nr = atoi(optarg);
+			break;
+		case 'u':
+			cfg.target_type = TARGET_UID;
+			if (optarg)
+				cfg.value.uid = (unsigned int)strtoul(optarg, NULL, 10);
+			break;
+		case 'p':
+			cfg.target_type = TARGET_PROG;
+			if (optarg)
+				cfg.value.prog_name = optarg;
+			break;
+		case 'v':
+			cfg.target_type = TARGET_GENERIC_VAL;
+			cfg.value.limit = strtoul(optarg, NULL, 10);
+			break;
+		case 'h':
+			print_usage(argv[0]);
+			return 0;
+		default:
+			print_usage(argv[0]);
+			return INVALID_ARGUMENTS_ERROR;
 		}
 	}
 
@@ -251,8 +255,7 @@ int main(int argc, char **argv) {
 			fprintf(stderr, "Error: Program name missing.\n");
 			return INVALID_ARGUMENTS_ERROR;
 		}
-	}
-	else if (cfg.action == ACTION_GET_LIST) {
+	} else if (cfg.action == ACTION_GET_LIST) {
 		// Get list requires target type.
 		// NOTE: Since arguments are now required, users might need to pass a dummy value
 		// e.g., "get-list --prog x" if they want to list programs.
@@ -260,8 +263,7 @@ int main(int argc, char **argv) {
 			fprintf(stderr, "Error: For get-list you must specify --sys, --uid, or --prog (with any dummy value).\n");
 			return INVALID_ARGUMENTS_ERROR;
 		}
-	}
-	else if (cfg.action == ACTION_SET_LIMIT || cfg.action == ACTION_SET_STATUS || cfg.action == ACTION_SET_FAST_UNLOAD) {
+	} else if (cfg.action == ACTION_SET_LIMIT || cfg.action == ACTION_SET_STATUS || cfg.action == ACTION_SET_FAST_UNLOAD) {
 		// Limit/Status/Fast Unload require a generic numeric value
 		if (cfg.target_type != TARGET_GENERIC_VAL) {
 			fprintf(stderr, "Error: For limit/status/fast-unload you must specify --val <number>.\n");
@@ -270,7 +272,7 @@ int main(int argc, char **argv) {
 
 		// If the action is status, cast the parsed long value to int
 		if (cfg.action == ACTION_SET_STATUS) {
-			cfg.value.status = (int) cfg.value.limit;
+			cfg.value.status = (int)cfg.value.limit;
 		}
 	}
 
@@ -292,78 +294,84 @@ int main(int argc, char **argv) {
 	struct sysc_delayed_t delay_info;
 
 	// Determine the correct IOCTL request and argument pointer
-	switch(cfg.action) {
-		/* --- WRITE OPERATIONS --- */
-		case ACTION_ADD:
-			if (cfg.target_type == TARGET_SYSCALL) {
-				req = SCT_IOCTL_ADD_SYSCALL; arg_ptr = &cfg.value.syscall_nr;
-				printf("[Client] Adding syscall: %d\n", cfg.value.syscall_nr);
-			} else if (cfg.target_type == TARGET_UID) {
-				req = SCT_IOCTL_ADD_UID; arg_ptr = &cfg.value.uid;
-				printf("[Client] Adding UID: %u\n", cfg.value.uid);
-			} else if (cfg.target_type == TARGET_PROG) {
-				req = SCT_IOCTL_ADD_PROG; arg_ptr = cfg.value.prog_name;
-				printf("[Client] Adding prog name: %s\n", cfg.value.prog_name);
-			}
-			break;
+	switch (cfg.action) {
+	/* --- WRITE OPERATIONS --- */
+	case ACTION_ADD:
+		if (cfg.target_type == TARGET_SYSCALL) {
+			req = SCT_IOCTL_ADD_SYSCALL;
+			arg_ptr = &cfg.value.syscall_nr;
+			printf("[Client] Adding syscall: %d\n", cfg.value.syscall_nr);
+		} else if (cfg.target_type == TARGET_UID) {
+			req = SCT_IOCTL_ADD_UID;
+			arg_ptr = &cfg.value.uid;
+			printf("[Client] Adding UID: %u\n", cfg.value.uid);
+		} else if (cfg.target_type == TARGET_PROG) {
+			req = SCT_IOCTL_ADD_PROG;
+			arg_ptr = cfg.value.prog_name;
+			printf("[Client] Adding prog name: %s\n", cfg.value.prog_name);
+		}
+		break;
 
-		case ACTION_REMOVE:
-			if (cfg.target_type == TARGET_SYSCALL) {
-				req = SCT_IOCTL_DEL_SYSCALL; arg_ptr = &cfg.value.syscall_nr;
-				printf("[Client] Removing syscall: %d\n", cfg.value.syscall_nr);
-			} else if (cfg.target_type == TARGET_UID) {
-				req = SCT_IOCTL_DEL_UID; arg_ptr = &cfg.value.uid;
-				printf("[Client] Removing UID: %u\n", cfg.value.uid);
-			} else if (cfg.target_type == TARGET_PROG) {
-				req = SCT_IOCTL_DEL_PROG; arg_ptr = cfg.value.prog_name;
-				printf("[Client] Removing prog name: %s\n", cfg.value.prog_name);
-			}
-			break;
+	case ACTION_REMOVE:
+		if (cfg.target_type == TARGET_SYSCALL) {
+			req = SCT_IOCTL_DEL_SYSCALL;
+			arg_ptr = &cfg.value.syscall_nr;
+			printf("[Client] Removing syscall: %d\n", cfg.value.syscall_nr);
+		} else if (cfg.target_type == TARGET_UID) {
+			req = SCT_IOCTL_DEL_UID;
+			arg_ptr = &cfg.value.uid;
+			printf("[Client] Removing UID: %u\n", cfg.value.uid);
+		} else if (cfg.target_type == TARGET_PROG) {
+			req = SCT_IOCTL_DEL_PROG;
+			arg_ptr = cfg.value.prog_name;
+			printf("[Client] Removing prog name: %s\n", cfg.value.prog_name);
+		}
+		break;
 
-		case ACTION_SET_LIMIT:
-			req = SCT_IOCTL_SET_LIMIT;
-			arg_ptr = &cfg.value.limit;
-			printf("[Client] Setting limit to: %lu\n", cfg.value.limit);
-			break;
+	case ACTION_SET_LIMIT:
+		req = SCT_IOCTL_SET_LIMIT;
+		arg_ptr = &cfg.value.limit;
+		printf("[Client] Setting limit to: %lu\n", cfg.value.limit);
+		break;
 
-		case ACTION_SET_STATUS:
-			req = SCT_IOCTL_SET_STATUS;
-			arg_ptr = &cfg.value.status;
-			printf("[Client] Setting status to: %s\n", cfg.value.status ? "ON" : "OFF");
-			break;
+	case ACTION_SET_STATUS:
+		req = SCT_IOCTL_SET_STATUS;
+		arg_ptr = &cfg.value.status;
+		printf("[Client] Setting status to: %s\n", cfg.value.status ? "ON" : "OFF");
+		break;
 
-		case ACTION_SET_FAST_UNLOAD:
-			req = SCT_IOCTL_SET_FAST_UNLOAD;
-			arg_ptr = &cfg.value.status;
-			printf("[Client] Setting fast unload to: %s\n", cfg.value.status ? "ON" : "OFF");
-			break;
+	case ACTION_SET_FAST_UNLOAD:
+		req = SCT_IOCTL_SET_FAST_UNLOAD;
+		arg_ptr = &cfg.value.status;
+		printf("[Client] Setting fast unload to: %s\n", cfg.value.status ? "ON" : "OFF");
+		break;
 
-		/* --- READ OPERATIONS --- */
-		case ACTION_GET_STATUS:
-			req = SCT_IOCTL_GET_STATUS;
-			arg_ptr = &status_info;
-			printf("[Client] Getting monitor status...\n");
-			break;
+	/* --- READ OPERATIONS --- */
+	case ACTION_GET_STATUS:
+		req = SCT_IOCTL_GET_STATUS;
+		arg_ptr = &status_info;
+		printf("[Client] Getting monitor status...\n");
+		break;
 
-		case ACTION_GET_STATS:
-			req = SCT_IOCTL_GET_STATS;
-			arg_ptr = &stats_info;
-			printf("[Client] Getting throttling statistics...\n");
-			break;
+	case ACTION_GET_STATS:
+		req = SCT_IOCTL_GET_STATS;
+		arg_ptr = &stats_info;
+		printf("[Client] Getting throttling statistics...\n");
+		break;
 
-		case ACTION_GET_PEAK_DELAY:
-			req = SCT_IOCTL_GET_PEAK_DELAY;
-			arg_ptr = &delay_info;
-			printf("[Client] Getting peak delay information...\n");
-			break;
+	case ACTION_GET_PEAK_DELAY:
+		req = SCT_IOCTL_GET_PEAK_DELAY;
+		arg_ptr = &delay_info;
+		printf("[Client] Getting peak delay information...\n");
+		break;
 
-		case ACTION_GET_LIST:
-			// Special handling because of dynamic allocation
-			close(fd);
-			return handle_get_list(open(cfg.device_path, O_RDWR), cfg.target_type);
+	case ACTION_GET_LIST:
+		// Special handling because of dynamic allocation
+		close(fd);
+		return handle_get_list(open(cfg.device_path, O_RDWR), cfg.target_type);
 
-		default:
-			break;
+	default:
+		break;
 	}
 
 	// Perform the IOCTL call
@@ -375,39 +383,39 @@ int main(int argc, char **argv) {
 
 	// Post-execution printing for read commands
 	switch (cfg.action) {
-		case ACTION_GET_STATUS:
-			printf("========= MONITOR STATUS =========\n");
-			printf("Enabled:	 %s\n", status_info.enabled ? "YES" : "NO");
-			printf("Fast Unload: %s\n", status_info.fast_unload ? "YES" : "NO");
-			printf("Max Invoks:  %lu\n", status_info.max_invoks);
-			printf("Cur Invoks:  %lu\n", status_info.cur_invoks);
-			printf("Window:	  %lu sec\n", status_info.window_sec);
-			printf("==================================\n");
-			break;
+	case ACTION_GET_STATUS:
+		printf("========= MONITOR STATUS =========\n");
+		printf("Enabled:	 %s\n", status_info.enabled ? "YES" : "NO");
+		printf("Fast Unload: %s\n", status_info.fast_unload ? "YES" : "NO");
+		printf("Max Invoks:  %lu\n", status_info.max_invoks);
+		printf("Cur Invoks:  %lu\n", status_info.cur_invoks);
+		printf("Window:	  %lu sec\n", status_info.window_sec);
+		printf("==================================\n");
+		break;
 
-		case ACTION_GET_STATS:
-			printf("======== THROTTLING STATS ========\n");
-			printf("Peak Blocked Threads: %lu\n", stats_info.peak_blocked);
-			printf("Avg Blocked Threads:  %lu.%02lu\n", stats_info.avg_blocked_int, stats_info.avg_blocked_dec);
-			printf("==================================\n");
-			break;
+	case ACTION_GET_STATS:
+		printf("======== THROTTLING STATS ========\n");
+		printf("Peak Blocked Threads: %lu\n", stats_info.peak_blocked);
+		printf("Avg Blocked Threads:  %lu.%02lu\n", stats_info.avg_blocked_int, stats_info.avg_blocked_dec);
+		printf("==================================\n");
+		break;
 
-		case ACTION_GET_PEAK_DELAY:
-			printf("========= PEAK DELAY INFO ========\n");
-			if (delay_info.syscall > -1) {
-				printf("Delay:	  %ld ms\n", delay_info.delay_ms);
-				printf("Syscall:	%d\n", delay_info.syscall);
-				printf("UID:		%u\n", delay_info.uid);
-				printf("Program:	%s\n", delay_info.prog_name);
-			} else {
-				printf("No delay recorded yet.\n");
-			}
-			printf("==================================\n");
-			break;
+	case ACTION_GET_PEAK_DELAY:
+		printf("========= PEAK DELAY INFO ========\n");
+		if (delay_info.syscall > -1) {
+			printf("Delay:	  %ld ms\n", delay_info.delay_ms);
+			printf("Syscall:	%d\n", delay_info.syscall);
+			printf("UID:		%u\n", delay_info.uid);
+			printf("Program:	%s\n", delay_info.prog_name);
+		} else {
+			printf("No delay recorded yet.\n");
+		}
+		printf("==================================\n");
+		break;
 
-		default:
-			printf("[Client] Operation completed successfully.\n");
-			break;
+	default:
+		printf("[Client] Operation completed successfully.\n");
+		break;
 	}
 
 	close(fd);

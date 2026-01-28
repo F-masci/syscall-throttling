@@ -26,7 +26,6 @@ static struct timer_list timer;
  */
 static void monitor_timer_callback(struct timer_list *t)
 {
-
 	u64 old_invoks;
 
 	PR_DEBUG("Monitor timer callback triggered\n");

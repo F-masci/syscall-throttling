@@ -30,7 +30,8 @@
  *
  * @return int 0 on success, negative error code on failure
  */
-int setup_ftrace_hook(void) {
+int setup_ftrace_hook(void)
+{
 	int ret;
 
 	// Get sys_ni_syscall address
@@ -44,17 +45,15 @@ int setup_ftrace_hook(void) {
 	return 0;
 }
 
-void cleanup_ftrace_hook(void) {
+void cleanup_ftrace_hook(void)
+{
 	// Nothing to do for ftrace hooking cleanup
 }
 
-
-
-
 #ifdef CONFIG_DYNAMIC_FTRACE_WITH_REGS
-	#define FTRACE_REGS_ARG struct ftrace_regs
+#define FTRACE_REGS_T ftrace_regs
 #else
-	#define FTRACE_REGS_ARG struct pt_regs
+#define FTRACE_REGS_T pt_regs
 #endif
 
 /**
@@ -64,9 +63,11 @@ void cleanup_ftrace_hook(void) {
  * @param ip Instruction pointer value to set
  * @return
  */
-static __always_inline void ftrace_set_ip(FTRACE_REGS_ARG *regs, unsigned long ip) {
+static __always_inline void ftrace_set_ip(struct FTRACE_REGS_T *regs, unsigned long ip)
+{
 #ifdef CONFIG_DYNAMIC_FTRACE_WITH_REGS
 	struct pt_regs *real_regs = (struct pt_regs *)regs;
+
 	real_regs->ip = ip;
 #else
 	regs->ip = ip;
@@ -81,8 +82,10 @@ static __always_inline void ftrace_set_ip(FTRACE_REGS_ARG *regs, unsigned long i
  * @param ops Ftrace operations structure
  * @param regs Ftrace registers
  */
-static void notrace ftrace_handler(unsigned long ip, unsigned long parent_ip, struct ftrace_ops *ops, struct ftrace_regs *regs) {
-	unsigned long hook_addr = (unsigned long) ops->private;
+static void notrace ftrace_handler(unsigned long ip, unsigned long parent_ip, struct ftrace_ops *ops, struct ftrace_regs *regs)
+{
+	unsigned long hook_addr = (unsigned long)ops->private;
+
 	ftrace_set_ip(regs, hook_addr);
 }
 
@@ -93,8 +96,8 @@ static void notrace ftrace_handler(unsigned long ip, unsigned long parent_ip, st
  *
  * @return int 0 on success, negative error code on failure
  */
-int init_syscall_fhook(struct hook_syscall_t * hook) {
-
+int init_syscall_fhook(struct hook_syscall_t *hook)
+{
 	int ret = 0;
 
 	// Check for valid pointer
@@ -109,9 +112,9 @@ int init_syscall_fhook(struct hook_syscall_t * hook) {
 		PR_ERROR("Cannot get syscall address for syscall %d\n", hook->syscall_idx);
 		return ret;
 	}
-	hook->fops.func	= ftrace_handler;
-	hook->fops.flags   = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION | FTRACE_OPS_FL_IPMODIFY;
-	hook->fops.private = (void *) hook->hook_addr;
+	hook->fops.func = ftrace_handler;
+	hook->fops.flags = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION | FTRACE_OPS_FL_IPMODIFY;
+	hook->fops.private = (void *)hook->hook_addr;
 	PR_DEBUG("Ftrace hook structure set up for syscall %d\n", hook->syscall_idx);
 
 	return 0;
@@ -124,8 +127,8 @@ int init_syscall_fhook(struct hook_syscall_t * hook) {
  *
  * @return int 0 on success, negative error code on failure
  */
-int install_syscall_fhook(struct hook_syscall_t * hook) {
-
+int install_syscall_fhook(struct hook_syscall_t *hook)
+{
 	int ret = 0;
 
 	// Check for valid pointer
@@ -184,8 +187,8 @@ filter_ip_err:
  *
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_syscall_fhook(struct hook_syscall_t * hook) {
-
+int uninstall_syscall_fhook(struct hook_syscall_t *hook)
+{
 	int ret = 0;
 
 	// Check for valid pointer

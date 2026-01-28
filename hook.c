@@ -20,14 +20,11 @@
 
 #ifdef _FTRACE_HOOKING
 #include <linux/mutex.h>
-#include "hook/ftrace/fhook.h"
 #elif defined(_DISCOVER_HOOKING)
-#include "hook/discover/disc.h"
-#include "hook/discover/dhook.h"
 #endif
 
-static struct hook_syscall_t * syscall_hooks;
-static size_t syscall_hooks_num = 0;
+static struct hook_syscall_t *syscall_hooks;
+static size_t syscall_hooks_num;
 
 #ifdef _FTRACE_HOOKING
 static DEFINE_MUTEX(hook_mutex);
@@ -35,10 +32,11 @@ static DEFINE_MUTEX(hook_mutex);
 static DEFINE_SPINLOCK(hook_lock);
 #endif
 
-static inline int scidx_sanity_check(int idx) {
+static inline int scidx_sanity_check(int idx)
+{
 	if (unlikely(idx < 0 || idx >= syscall_hooks_num)) {
 		PR_ERROR("Invalid syscall index %d\n", idx);
-		return -ENOSYS;
+		return -EINVAL;
 	}
 	return array_index_nospec(idx, syscall_hooks_num);
 }
@@ -49,10 +47,10 @@ static inline int scidx_sanity_check(int idx) {
  * @param num_syscalls Number of syscalls
  * @return int 0 on success, negative error code on failure
  */
-int setup_syscall_hooks(size_t num_syscalls) {
-
+int setup_syscall_hooks(size_t num_syscalls)
+{
 	int ret;
-	struct hook_syscall_t * hook;
+	struct hook_syscall_t *hook;
 
 	// Allocate syscall hooks data structure
 	syscall_hooks = kmalloc_array(num_syscalls, sizeof(struct hook_syscall_t), GFP_KERNEL);
@@ -85,7 +83,7 @@ int setup_syscall_hooks(size_t num_syscalls) {
 	for (int idx = 0; idx < num_syscalls; idx++) {
 		hook = &syscall_hooks[idx];
 		hook->syscall_idx = idx;
-		hook->hook_addr = (unsigned long) syscall_wrapper;
+		hook->hook_addr = (unsigned long)syscall_wrapper;
 #ifdef _FTRACE_HOOKING
 		ret = init_syscall_fhook(hook);
 #elif defined(_DISCOVER_HOOKING)
@@ -102,7 +100,6 @@ int setup_syscall_hooks(size_t num_syscalls) {
 		}
 	}
 
-
 #ifdef _FTRACE_HOOKING
 	PR_INFO("Ftrace hooking mode setup completed\n");
 #elif defined(_DISCOVER_HOOKING)
@@ -110,10 +107,12 @@ int setup_syscall_hooks(size_t num_syscalls) {
 #endif
 
 	syscall_hooks_num = num_syscalls;
+
+	// Ensure memory operations are completed before proceeding
+	// so that other CPUs see the updated syscall table
 	mb();
 
 	return ret;
-
 
 init_structs_err:
 #ifdef _FTRACE_HOOKING
@@ -124,19 +123,17 @@ dhook_setup_err:
 
 hooks_alloc_err:
 	return ret;
-
 }
 
 /**
  * @brief Cleanup syscall hooks
  *
  */
-void cleanup_syscall_hooks(void) {
-
+void cleanup_syscall_hooks(void)
+{
 	// Uninstall active hooks
-	if (uninstall_active_syscalls_hooks() < 0) {
+	if (uninstall_active_syscalls_hooks() < 0)
 		PR_ERROR("Failed to uninstall all active syscall hooks during cleanup\n");
-	}
 	PR_DEBUG("All active syscall hooks uninstalled\n");
 
 	// Free syscall hooks data structure
@@ -151,7 +148,6 @@ void cleanup_syscall_hooks(void) {
 	cleanup_discover_hook();
 	PR_DEBUG("Discover hooking mode cleaned up\n");
 #endif
-
 }
 
 /**
@@ -160,19 +156,20 @@ void cleanup_syscall_hooks(void) {
  * @param syscall_idx Syscall number to hook
  * @return int 0 on success, negative error code on failure
  */
-int install_syscall_hook(int syscall_idx) {
+int install_syscall_hook(int syscall_idx)
+{
 #ifdef _FTRACE_HOOKING
 #elif defined(_DISCOVER_HOOKING)
 	unsigned long flags;
 #endif
-	struct hook_syscall_t * hook;
+	struct hook_syscall_t *hook;
 	int ret = 0;
 
 	// Sanity check syscall index
 	syscall_idx = scidx_sanity_check(syscall_idx);
 	if (syscall_idx < 0) {
 		PR_ERROR("Invalid syscall index %d\n", syscall_idx);
-		return -ENOSYS;
+		return -EINVAL;
 	}
 
 	// Check monitor status
@@ -231,8 +228,8 @@ installed_hook:
  *
  * @return int 0 on success, negative error code on failure
  */
-int install_monitored_syscalls_hooks(void) {
-
+int install_monitored_syscalls_hooks(void)
+{
 	int *syscall_list;
 	size_t syscall_count;
 	int ret = 0;
@@ -257,9 +254,8 @@ int install_monitored_syscalls_hooks(void) {
 	kfree(syscall_list);
 
 	// On error, uninstall all installed hooks
-	if (ret < 0 && uninstall_active_syscalls_hooks() < 0) {
+	if (ret < 0 && uninstall_active_syscalls_hooks() < 0)
 		PR_ERROR("Failed to uninstall all syscall hooks after install error\n");
-	}
 
 	return ret;
 }
@@ -270,24 +266,24 @@ int install_monitored_syscalls_hooks(void) {
  * @param syscall_idx Syscall number
  * @return unsigned long Original syscall address, or NULL on failure
  */
-inline unsigned long get_original_syscall_address(int syscall_idx) {
-
-	struct hook_syscall_t * hook;
+unsigned long get_original_syscall_address(int syscall_idx)
+{
+	struct hook_syscall_t *hook;
 
 	syscall_idx = scidx_sanity_check(syscall_idx);
-	if (syscall_idx < 0) return (unsigned long) NULL;
+	if (syscall_idx < 0)
+		return (unsigned long)NULL;
 
 	// Get original syscall address
 	hook = &syscall_hooks[syscall_idx];
-	if (unlikely(hook->original_addr == (unsigned long) NULL)) {
+	if (unlikely(hook->original_addr == (unsigned long)NULL)) {
 		PR_ERROR("Cannot get original address for syscall %d\n", syscall_idx);
-		return (unsigned long) NULL;
+		return (unsigned long)NULL;
 	}
 
 	// Warn if syscall is not hooked
-	if (unlikely(!hook->active)) {
+	if (unlikely(!hook->active))
 		PR_WARN("Returning original address for syscall %d which is not hooked\n", syscall_idx);
-	}
 
 	return hook->original_addr;
 }
@@ -298,17 +294,19 @@ inline unsigned long get_original_syscall_address(int syscall_idx) {
  * @param syscall_idx Syscall number to unhook
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_syscall_hook(int syscall_idx) {
+int uninstall_syscall_hook(int syscall_idx)
+{
 #ifdef _FTRACE_HOOKING
 #elif defined(_DISCOVER_HOOKING)
 	unsigned long flags;
 #endif
-	struct hook_syscall_t * hook;
+	struct hook_syscall_t *hook;
 	int ret = 0;
 
 	// Sanity check syscall index
 	syscall_idx = scidx_sanity_check(syscall_idx);
-	if (syscall_idx < 0) return -ENOSYS;
+	if (syscall_idx < 0)
+		return -EINVAL;
 
 #ifdef _FTRACE_HOOKING
 	mutex_lock(&hook_mutex);
@@ -364,24 +362,21 @@ uninstalled_hook:
  *
  * @return int 0 on success, negative error code on failure
  */
-int uninstall_active_syscalls_hooks(void) {
-
+int uninstall_active_syscalls_hooks(void)
+{
 	int ret;
 
 	// Uninstall active hooks
 	PR_DEBUG("Uninstalling all active syscall hooks...\n");
 	for (int i = 0; i < syscall_hooks_num; i++) {
-
 		// Check if hook is active
 		if (syscall_hooks[i].active) {
-
 			PR_DEBUG("Uninstalling active hook on syscall %d\n", i);
 			ret = uninstall_syscall_hook(i);
 			if (ret < 0) {
 				PR_ERROR("Failed to uninstall syscall hook on syscall %d\n", i);
 				return ret;
 			}
-
 		}
 	}
 

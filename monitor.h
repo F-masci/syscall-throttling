@@ -5,18 +5,18 @@
 int setup_monitor(void);
 void cleanup_monitor(void);
 
-inline u64 get_curw_invoks(void);
-inline u64 reset_curw_invoks(void);
+u64 get_curw_invoks(void);
+u64 reset_curw_invoks(void);
 
-inline u64 get_monitor_max_invoks(void);
-int set_monitor_max_invoks(u64);
+u64 get_monitor_max_invoks(void);
+int set_monitor_max_invoks(u64 max);
 
-inline bool get_monitor_status(void);
-inline int set_monitor_status(bool);
+bool get_monitor_status(void);
+int set_monitor_status(bool s);
 
-inline bool get_monitor_fast_unload(void);
-int set_monitor_fast_unload(bool);
+bool get_monitor_fast_unload(void);
+int set_monitor_fast_unload(bool fu);
 
-inline void wake_monitor_queue(void);
+void wake_monitor_queue(void);
 
-asmlinkage long syscall_wrapper(struct pt_regs *);
+asmlinkage long syscall_wrapper(struct pt_regs *regs);

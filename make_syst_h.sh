@@ -25,7 +25,7 @@ cat <<EOF > $OUTPUT
 #include <linux/kernel.h>
 
 /* Automatically generated table */
-static const char *syscall_names[] = {
+static const char * const syscall_names[] = {
 EOF
 
 if command -v ausyscall &> /dev/null; then
@@ -46,17 +46,15 @@ fi
 cat <<EOF >> $OUTPUT
 };
 
-#define SYSCALL_TABLE_SIZE (sizeof(syscall_names) / sizeof(syscall_names[0]))
+#define SYSCALL_TABLE_SIZE ARRAY_SIZE(syscall_names)
 
 /**
-* @brief Get the name of a syscall by its number
-* 
-* @param nr Syscall number
-* @return const char* Name of the syscall, or NULL if out of range
-*/
-#define __get_syscall_name(nr) ( \
-    ((nr) >= 0 && (nr) < SYSCALL_TABLE_SIZE) ? syscall_names[(nr)] : NULL \
-)
+ * @brief Get the name of a syscall by its number
+ *
+ * @param nr Syscall number
+ * @return const char* Name of the syscall, or NULL if out of range
+ */
+#define __get_syscall_name(nr) (((nr) >= 0 && (nr) < SYSCALL_TABLE_SIZE) ? syscall_names[(nr)] : NULL)
 
 EOF
 

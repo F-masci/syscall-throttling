@@ -32,8 +32,8 @@ static unsigned long sys_ni_syscall_address;
  *
  * @return unsigned long
  */
-int load_sys_ni_syscall_address(void) {
-
+int load_sys_ni_syscall_address(void)
+{
 	// Set up kprobe for sys_ni_syscall
 	struct kprobe kp = { .symbol_name = "sys_ni_syscall" };
 	int ret;
@@ -47,7 +47,7 @@ int load_sys_ni_syscall_address(void) {
 	PR_DEBUG("Kprobe registered for sys_ni_syscall\n");
 
 	// Get syscall address
-	sys_ni_syscall_address = (unsigned long) kp.addr;
+	sys_ni_syscall_address = (unsigned long)kp.addr;
 
 	// Unregister kprobe
 	unregister_kprobe(&kp);
@@ -66,45 +66,45 @@ int load_sys_ni_syscall_address(void) {
  * @param syscall_idx Syscall index
  * @return int 0 on success, negative error code on failure
  */
-static inline int __get_syscall_fullname(char *buf, size_t size, int syscall_idx) {
-
+static inline int __get_syscall_fullname(char *buf, size_t size, int syscall_idx)
+{
 	const char *short_name = __get_syscall_name(syscall_idx);
-	char prefix[PREFIX_BUF_LEN] = {0};
-	char suffix[SUFFIX_BUF_LEN] = {0};
+	char prefix[PREFIX_BUF_LEN] = { 0 };
+	char suffix[SUFFIX_BUF_LEN] = { 0 };
 	int ret;
 
 	// Check if syscall name is valid
 	if (unlikely(!short_name)) {
 		PR_ERROR("Syscall name not found for index %d\n", syscall_idx);
-		return -ENOSYS;
+		return -EINVAL;
 	}
 
-	switch(syscall_idx) {
-		case __NR_pread64:
-		case __NR_pwrite64:
-			snprintf(suffix, SUFFIX_BUF_LEN, "64");
-			break;
-		case __NR_stat:
-			short_name = "newstat";
-			break;
-		case __NR_fstat:
-			short_name = "newfstat";
-			break;
-		case __NR_lstat:
-			short_name = "newlstat";
-			break;
-		case __NR_uname:
-			short_name = "newuname";
-			break;
-		case __NR_umount2:
-			short_name = "umount";
-			break;
-		case __NR_perf_event_open:
-			PR_WARN("Redirecting perf_event_open tracing to internal function security_perf_event_open\n");
-			ret = snprintf(buf, size, "security_perf_event_open");
-			goto fullname_found;
-		default:
-			break;
+	switch (syscall_idx) {
+	case __NR_pread64:
+	case __NR_pwrite64:
+		snprintf(suffix, SUFFIX_BUF_LEN, "64");
+		break;
+	case __NR_stat:
+		short_name = "newstat";
+		break;
+	case __NR_fstat:
+		short_name = "newfstat";
+		break;
+	case __NR_lstat:
+		short_name = "newlstat";
+		break;
+	case __NR_uname:
+		short_name = "newuname";
+		break;
+	case __NR_umount2:
+		short_name = "umount";
+		break;
+	case __NR_perf_event_open:
+		PR_WARN("Redirecting perf_event_open tracing to internal function security_perf_event_open\n");
+		ret = snprintf(buf, size, "security_perf_event_open");
+		goto fullname_found;
+	default:
+		break;
 	}
 
 	ret = snprintf(buf, size, "__x64_sys_%s%s%s", prefix, short_name, suffix);
@@ -120,7 +120,6 @@ fullname_found:
 #undef SUFFIX_BUF_LEN
 #undef PREFIX_BUF_LEN
 
-
 #define FNAME_BUF_SIZE 128
 /**
  * @brief Get the syscall address by its index
@@ -129,8 +128,8 @@ fullname_found:
  *
  * @return int 0 on success, negative error code on failure
  */
-int set_syscall_address(struct hook_syscall_t * hook) {
-
+int set_syscall_address(struct hook_syscall_t *hook)
+{
 	char full_name[FNAME_BUF_SIZE];
 	struct kprobe kp;
 	int ret = 0;
@@ -162,7 +161,7 @@ int set_syscall_address(struct hook_syscall_t * hook) {
 	PR_DEBUG("Kprobe registered for %s\n", full_name);
 
 	// Get syscall address
-	hook->original_addr = (unsigned long) kp.addr;
+	hook->original_addr = (unsigned long)kp.addr;
 
 	// Unregister kprobe
 	unregister_kprobe(&kp);

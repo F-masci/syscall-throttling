@@ -19,8 +19,8 @@
 
 static dev_t dev;
 static struct cdev cdev;
-static struct class* dclass = NULL;
-static struct device* dnode = NULL;
+static struct class *dclass;
+static struct device *dnode;
 
 /**
  * @brief Set the up monitor device object.
@@ -29,8 +29,8 @@ static struct device* dnode = NULL;
  *
  * @return int 0 on success, negative error code on failure
  */
-int setup_monitor_device(void) {
-
+int setup_monitor_device(void)
+{
 	int ret;
 
 	// Device registration
@@ -53,12 +53,12 @@ int setup_monitor_device(void) {
 	}
 	PR_DEBUG("Device added successfully\n");
 
-	// Class creation
-	#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0)
-		dclass = class_create(CLASS_NAME);
-	#else
-		dclass = class_create(THIS_MODULE, CLASS_NAME);
-	#endif
+// Class creation
+#if KERNEL_VERSION(6, 4, 0) < LINUX_VERSION_CODE
+	dclass = class_create(CLASS_NAME);
+#else
+	dclass = class_create(THIS_MODULE, CLASS_NAME);
+#endif
 
 	if (IS_ERR(dclass)) {
 		PR_ERROR("Failed to create device class\n");
@@ -94,8 +94,8 @@ err_cdev:
  * device node in /dev.
  *
  */
-void cleanup_monitor_device(void) {
-
+void cleanup_monitor_device(void)
+{
 	// Device node cleanup
 	if (dclass && dnode) {
 		device_destroy(dclass, dev);

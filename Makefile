@@ -156,7 +156,7 @@ checkpatch:
 		chmod +x checkpatch.pl; \
 	fi
 	@# Run checkpatch on all .c and .h files
-	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES --terse -f $$(find . \( -path ./_examples -o -path ./out \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
+	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES --terse -f $$(find . \( -path ./_examples -o -path ./out -o -path ./client -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
 
 cppcheck:
 	@echo "\n=== Running Cppcheck ==="
@@ -177,7 +177,7 @@ sparse:
 format:
 	@echo "=== Formatting code style ==="
 	@# Format all .c and .h files, excluding build/out directories if necessary
-	@find . -name "*.c" -o -name "*.h" -not -path "./_examples/*" -not -path "./out/*" | xargs clang-format -i
+	@find . \( -path ./out -o -path ./_examples -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print | xargs clang-format -i
 	@echo "Code formatted."
 
 vm-test:

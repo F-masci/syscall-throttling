@@ -1,13 +1,12 @@
 /**
  * @file main.c
  * @author Francesco Masci (francescomasci@outlook.com)
- * 
  * @brief This file contains the module initialization and cleanup
  *		functions for the system call throttling module.
- * 
+ *
  * @version 1.0
  * @date 2026-01-21
- * 
+ *
  */
 
 #include "sct.h"
@@ -26,11 +25,11 @@ MODULE_VERSION("1.0");
 
 /**
  * @brief Initialize the system call throttling module
- * 
- * @return int 
+ *
+ * @return int
  */
-static int __init sct_init(void) {
-
+static int __init sct_init(void)
+{
 	int ret;
 
 	PR_INFO("Initializing module...\n");
@@ -124,15 +123,14 @@ err_stats:
 	PR_ERROR("Module initialization failed\n");
 
 	return ret;
-
 }
 
 /**
  * @brief Cleanup the system call throttling module
- * 
+ \*
  */
-static void __exit sct_exit(void) {
-
+static void __exit sct_exit(void)
+{
 	PR_INFO("Removing module...\n");
 
 	/**
@@ -178,7 +176,6 @@ static void __exit sct_exit(void) {
 	PR_INFO("Statistics structures cleaned up successfully\n");
 
 	PR_INFO("Module unloaded\n");
-
 }
 
 module_init(sct_init);

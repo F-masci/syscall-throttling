@@ -22,15 +22,17 @@
 
 // ---- INTERNAL DATA STRUCTURES ---- //
 
-static DECLARE_BITMAP(syscall_bm, SYSCALL_TABLE_SIZE);	  // SYSCALL_TABLE_SIZE bitmap
+static DECLARE_BITMAP(syscall_bm,
+		      SYSCALL_TABLE_SIZE); // SYSCALL_TABLE_SIZE bitmap
 static atomic64_t syscall_count = ATOMIC64_INIT(0);
 static DEFINE_RWLOCK(syscall_lock);
 
-static DEFINE_HASHTABLE(uid_ht, UID_HT_SIZE);			   // 2^UID_HT_SIZE buckets
+static DEFINE_HASHTABLE(uid_ht, UID_HT_SIZE); // 2^UID_HT_SIZE buckets
 static atomic64_t uid_count = ATOMIC64_INIT(0);
 static DEFINE_RWLOCK(uid_lock);
 
-static DEFINE_HASHTABLE(progname_ht, PNAMES_HT_SIZE);	   // 2^PNAMES_HT_SIZE buckets
+static DEFINE_HASHTABLE(progname_ht,
+			PNAMES_HT_SIZE); // 2^PNAMES_HT_SIZE buckets
 static atomic64_t prog_count = ATOMIC64_INIT(0);
 static DEFINE_RWLOCK(prog_lock);
 
@@ -48,7 +50,6 @@ void setup_monitor_filter(void)
  */
 void cleanup_monitor_filter(void)
 {
-
 	struct uid_node *cur_uid = NULL;
 	struct hlist_node *tmp_uid;
 	struct prog_node *cur_pn = NULL;
@@ -76,7 +77,6 @@ void cleanup_monitor_filter(void)
 		atomic64_dec(&prog_count);
 	}
 	PR_DEBUG("Cleared program names monitoring hash table\n");
-
 }
 
 /* ---- SYS CALL MONITORING ---- */
@@ -85,7 +85,8 @@ void cleanup_monitor_filter(void)
  * @brief Get the number of syscall monitored
  * @return size_t
  */
-size_t get_syscall_monitor_num() {
+size_t get_syscall_monitor_num(void)
+{
 	return atomic64_read(&syscall_count);
 }
 
@@ -95,7 +96,8 @@ size_t get_syscall_monitor_num() {
  * @param max_size Maximum number of syscall numbers to retrieve
  * @return size_t Number of syscall numbers retrieved
  */
-size_t get_syscall_monitor_vals(int *buf, size_t max_size) {
+size_t get_syscall_monitor_vals(int *buf, size_t max_size)
+{
 	unsigned long flags;
 	unsigned long i;
 	size_t count = 0;
@@ -104,8 +106,10 @@ size_t get_syscall_monitor_vals(int *buf, size_t max_size) {
 	read_lock_irqsave(&syscall_lock, flags);
 
 	for_each_set_bit(i, syscall_bm, SYSCALL_TABLE_SIZE) {
-		if (count >= max_size) break;
-		if (buf) buf[count] = (int) i;
+		if (count >= max_size)
+			break;
+		if (buf)
+			buf[count] = (int)i;
 		count++;
 	}
 	PR_DEBUG("Retrieved %zu monitored syscall numbers\n", count);
@@ -121,7 +125,8 @@ size_t get_syscall_monitor_vals(int *buf, size_t max_size) {
  * @param syscall_nr Syscall number to check
  * @return bool True if monitored, false otherwise
  */
-inline bool is_syscall_monitored(int syscall_idx) {
+bool is_syscall_monitored(int syscall_idx)
+{
 	return test_bit(syscall_idx, syscall_bm);
 }
 
@@ -129,15 +134,18 @@ inline bool is_syscall_monitored(int syscall_idx) {
  * @brief Add a syscall to the monitored list
  * @param syscall_idx Syscall number to add
  */
-void add_syscall_monitoring(int syscall_idx) {
+void add_syscall_monitoring(int syscall_idx)
+{
 	unsigned long flags;
 
 	// Sanity check
-	if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE)) return;
+	if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE))
+		return;
 	syscall_idx = array_index_nospec(syscall_idx, SYSCALL_TABLE_SIZE);
 
 	// Fast check without lock
-	if (unlikely(is_syscall_monitored(syscall_idx))) return;
+	if (unlikely(is_syscall_monitored(syscall_idx)))
+		return;
 
 	write_lock_irqsave(&syscall_lock, flags);
 
@@ -154,22 +162,24 @@ void add_syscall_monitoring(int syscall_idx) {
 
 syscall_monitored:
 	write_unlock_irqrestore(&syscall_lock, flags);
-
 }
 
 /**
  * @brief Remove a syscall from the monitored list
  * @param syscall_idx Syscall number to remove
  */
-void remove_syscall_monitoring(int syscall_idx) {
+void remove_syscall_monitoring(int syscall_idx)
+{
 	unsigned long flags;
 
 	// Sanity check
-	if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE)) return;
+	if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE))
+		return;
 	syscall_idx = array_index_nospec(syscall_idx, SYSCALL_TABLE_SIZE);
 
 	// Fast check without lock
-	if (unlikely(is_syscall_monitored(syscall_idx))) return;
+	if (unlikely(is_syscall_monitored(syscall_idx)))
+		return;
 
 	write_lock_irqsave(&syscall_lock, flags);
 
@@ -194,7 +204,8 @@ syscall_not_monitored:
  * @brief Get the number of UIDs monitored
  * @return size_t
  */
-size_t get_uid_monitor_num() {
+size_t get_uid_monitor_num(void)
+{
 	return atomic64_read(&uid_count);
 }
 
@@ -204,8 +215,8 @@ size_t get_uid_monitor_num() {
  * @param max_size Maximum number of UIDs to retrieve
  * @return size_t Number of UIDs retrieved
  */
-size_t get_uid_monitor_vals(uid_t *buf, size_t max_size) {
-
+size_t get_uid_monitor_vals(uid_t *buf, size_t max_size)
+{
 	unsigned long flags;
 	struct uid_node *cur = NULL;
 	int bkt;
@@ -215,8 +226,10 @@ size_t get_uid_monitor_vals(uid_t *buf, size_t max_size) {
 	read_lock_irqsave(&uid_lock, flags);
 
 	hash_for_each(uid_ht, bkt, cur, node) {
-		if (count >= max_size) break;
-		if (buf) buf[count] = cur->uid;
+		if (count >= max_size)
+			break;
+		if (buf)
+			buf[count] = cur->uid;
 		count++;
 	}
 	PR_DEBUG("Retrieved %d monitored UIDs\n", count);
@@ -232,8 +245,8 @@ size_t get_uid_monitor_vals(uid_t *buf, size_t max_size) {
  * @param uid UID to check
  * @return bool True if monitored, false otherwise
  */
-inline bool is_uid_monitored(uid_t uid) {
-
+bool is_uid_monitored(uid_t uid)
+{
 	struct uid_node *cur = NULL;
 	bool found = false;
 
@@ -258,8 +271,8 @@ inline bool is_uid_monitored(uid_t uid) {
  * @param uid UID to add
  * @return int 0 on success, error code otherwise
  */
-int add_uid_monitoring(uid_t uid) {
-
+int add_uid_monitoring(uid_t uid)
+{
 	unsigned long flags;
 	struct uid_node *new_node;
 
@@ -299,8 +312,8 @@ uid_monitored:
  * @param uid UID to remove
  * @return int 0 on success, error code otherwise
  */
-int remove_uid_monitoring(uid_t uid) {
-
+int remove_uid_monitoring(uid_t uid)
+{
 	unsigned long flags;
 	struct uid_node *cur = NULL;
 	struct hlist_node *tmp;
@@ -333,14 +346,44 @@ uid_monitor_removed:
 /* --- PROG NAMES MONITORING --- */
 
 /**
+ * @brief Get the task exe file structure
+ *
+ * @param task Pointer to the task_struct
+ * @return struct file* Pointer to the executable file structure, or NULL on failure
+ *
+ * @note The returned file structure has its reference count incremented.
+ * 	The caller is responsible for calling fput() to release the reference.
+ */
+struct file *get_task_exe(struct task_struct *task)
+{
+	struct file *exe = NULL;
+
+	// Sanity check
+	if (!task)
+		return NULL;
+
+	// RCU read section
+	rcu_read_lock();
+	if (task->mm && task->mm->exe_file) {
+		exe = task->mm->exe_file;
+		get_file(exe);
+	}
+
+	// End RCU read section
+	rcu_read_unlock();
+
+	return exe;
+}
+
+/**
  * @brief Get the current process executable path
  * @param exe_file Pointer to the executable file structure
  * @return char* Kernel-allocated string containing the path, or NULL on failure
  * @note The returned string must be freed by the caller using kfree().
  *	   Must be called under task_lock.
  */
-char *get_exe_path(struct file *exe_file) {
-
+char *get_exe_path(struct file *exe_file)
+{
 	char *buf, *path_str = NULL, *res = NULL;
 
 	if (!exe_file) {
@@ -381,7 +424,8 @@ char *get_exe_path(struct file *exe_file) {
  * @brief Get the number of program names monitored
  * @return size_t
  */
-size_t get_prog_monitor_num() {
+size_t get_prog_monitor_num(void)
+{
 	return atomic64_read(&prog_count);
 }
 
@@ -392,8 +436,8 @@ size_t get_prog_monitor_num() {
  * @param max_size Maximum number of program names to retrieve
  * @return size_t Number of program names retrieved
  */
-size_t get_prog_monitor_vals(char **buf, size_t max_size) {
-
+size_t get_prog_monitor_vals(char **buf, size_t max_size)
+{
 	unsigned long flags;
 	struct prog_node *cur = NULL;
 	int bkt;
@@ -413,7 +457,8 @@ size_t get_prog_monitor_vals(char **buf, size_t max_size) {
 	read_lock_irqsave(&prog_lock, flags);
 
 	hash_for_each(progname_ht, bkt, cur, node) {
-		if (count >= max_size) break;
+		if (count >= max_size)
+			break;
 
 #ifndef LOW_MEMORY
 		fpath = kstrndup(cur->fpath, PATH_MAX, GFP_ATOMIC);
@@ -450,14 +495,14 @@ size_t get_prog_monitor_vals(char **buf, size_t max_size) {
  * @param device Device number of the program
  * @return bool True if monitored, false otherwise
  */
-inline bool is_prog_monitored(unsigned long inode, dev_t device) {
-
+bool is_prog_monitored(unsigned long inode, dev_t device)
+{
 	struct prog_node *cur = NULL;
 	bool found = false;
 	u32 key_hash;
 
 	// Basic sanity check
-	key_hash = jhash_2words((u32) inode, (u32) device, PROG_HASH_SALT);
+	key_hash = jhash_2words((u32)inode, (u32)device, PROG_HASH_SALT);
 
 	// RCU read section
 	rcu_read_lock();
@@ -480,8 +525,8 @@ inline bool is_prog_monitored(unsigned long inode, dev_t device) {
  * @param fpath File path of the program to add
  * @return int 0 on success, error code otherwise
  */
-int add_prog_monitoring(const char *fpath) {
-
+int add_prog_monitoring(const char *fpath)
+{
 	unsigned long flags;
 	struct prog_node *new_node;
 	struct path path;
@@ -520,11 +565,11 @@ int add_prog_monitoring(const char *fpath) {
 	}
 
 	// Fill node data
-	new_node->inode  = inode->i_ino;
+	new_node->inode = inode->i_ino;
 	new_node->device = inode->i_sb->s_dev;
 
 #ifndef LOW_MEMORY
-	new_node->fpath  = kstrndup(fpath, PATH_MAX, GFP_KERNEL);
+	new_node->fpath = kstrndup(fpath, PATH_MAX, GFP_KERNEL);
 	if (!new_node->fpath) {
 		PR_ERROR("Cannot allocate memory for program name %s\n", fpath);
 		kfree(new_node);
@@ -535,7 +580,7 @@ int add_prog_monitoring(const char *fpath) {
 #endif
 
 	// Compute hash key
-	key_hash = jhash_2words((u32) new_node->inode, (u32) new_node->device, PROG_HASH_SALT);
+	key_hash = jhash_2words((u32)new_node->inode, (u32)new_node->device, PROG_HASH_SALT);
 
 	// Release path
 	path_put(&path);
@@ -571,8 +616,8 @@ prog_monitored:
  * @param fpath File path of the program to add
  * @return int 0 on success, error code otherwise
  */
-int remove_prog_monitoring(const char *fpath) {
-
+int remove_prog_monitoring(const char *fpath)
+{
 	unsigned long flags;
 	struct prog_node *cur = NULL;
 	struct path path;
@@ -603,7 +648,7 @@ int remove_prog_monitoring(const char *fpath) {
 	}
 
 	// Compute hash key
-	key_hash = jhash_2words((u32) inode->i_ino, (u32) inode->i_sb->s_dev, PROG_HASH_SALT);
+	key_hash = jhash_2words((u32)inode->i_ino, (u32)inode->i_sb->s_dev, PROG_HASH_SALT);
 
 	// Release path
 	path_put(&path);

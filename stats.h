@@ -12,7 +12,7 @@ int reset_peak_delay(void);
 u64 increment_curw_blocked(void);
 u64 get_peakw_blocked(void);
 u64 get_avgw_blocked(u64 scale);
-void get_stats_blocked(u64 *curw, u64 *peakw, u64 *avgw, u64 *totalw);
+void get_stats_blocked(u64 *curw, u64 *peakw, u64 *avgw, u64 scale);
 
 u64 compres_wstats_blocked(void);
 int reset_stats_blocked(void);

@@ -11,6 +11,10 @@
  *
  */
 
+#include <linux/sched/mm.h>
+#include <linux/mm.h>
+#include <linux/file.h>
+
 #include "stats.h"
 #include "filter.h"
 
@@ -31,15 +35,15 @@ static struct stats_wrapper __rcu *stats_ptr;
 
 #elif defined _SPINLOCK_PROTECTED
 
-static struct sysc_delayed_t peak_ds   = {0};
-static struct wstats_t wstats		  = {0, 0, 0};
+static struct sysc_delayed_t peak_ds = { 0 };
+static struct wstats_t wstats = { 0, 0, 0 };
 
 #endif
 
 static DEFINE_RWLOCK(peakd_lock);
 static DEFINE_RWLOCK(stats_lock);
 
-static atomic64_t blocked_current_window = ATOMIC64_INIT(0);		// Number of blocked threads in the current time window
+static atomic64_t blocked_current_window = ATOMIC64_INIT(0); // Number of blocked threads in the current time window
 
 /* ---- PEAK DELAYED SYSCALL ---- */
 
@@ -137,8 +141,8 @@ void get_peak_delayed_syscall(struct sysc_delayed_t *_out)
  */
 bool update_peak_delay(s64 delay_ms, int syscall)
 {
-
 	unsigned long flags;
+	struct file *exe_file = NULL;
 	char *prog_name = NULL;
 	bool updated = false;
 #ifdef _RCU_PROTECTED
@@ -174,34 +178,41 @@ bool update_peak_delay(s64 delay_ms, int syscall)
 	PR_DEBUG("Checking for peak delayed syscall update: current peak %lld ms, new delay %lld ms\n", old_peak_ptr ? old_peak_ptr->data.delay_ms : 0, delay_ms);
 	if (likely(old_peak_ptr && delay_ms > old_peak_ptr->data.delay_ms)) {
 		// Free old program name
-		kfree(old_peak_ptr->data.prog_name);
-		old_peak_ptr->data.prog_name = NULL;
+		if (old_peak_ptr->data.prog_name) {
+			kfree(old_peak_ptr->data.prog_name);
+			old_peak_ptr->data.prog_name = NULL;
+		}
 
 #elif defined _SPINLOCK_PROTECTED
 	// Re-check with lock
 	PR_DEBUG("Checking for peak delayed syscall update: current peak %lld ms, new delay %lld ms\n", peak_ds.delay_ms, delay_ms);
 	if (likely(delay_ms > peak_ds.delay_ms)) {
 		// Free old program name
-		kfree(peak_ds.prog_name);
-		peak_ds.prog_name = NULL;
+		if (peak_ds.prog_name) {
+			kfree(peak_ds.prog_name);
+			peak_ds.prog_name = NULL;
+		}
 #endif
 
 		// Get program name
-		task_lock(current);
-		prog_name = get_exe_path(current->mm->exe_file);
-		if (!prog_name) {
-			PR_WARN_PID("Failed to get program name for peak delayed syscall update\n");
-			prog_name = kstrdup("N/A", GFP_ATOMIC);
+		exe_file = get_task_exe(current);
+		if (exe_file) {
+			prog_name = get_exe_path(exe_file);
 			if (!prog_name) {
+				PR_WARN_PID("Failed to get program name for peak delayed syscall update\n");
+				prog_name = kstrdup("N/A", GFP_ATOMIC);
+				if (!prog_name) {
 #ifdef _RCU_PROTECTED
-				kfree(new_peak_ptr);
+					kfree(new_peak_ptr);
 #elif defined _SPINLOCK_PROTECTED
 #endif
-				updated = false;
-				goto alloc_proc_err;
+					updated = false;
+					fput(exe_file);
+					goto alloc_proc_err;
+				}
 			}
+			fput(exe_file);
 		}
-		task_unlock(current);
 
 #ifdef _RCU_PROTECTED
 		new_peak_ptr->data.delay_ms = delay_ms;
@@ -281,7 +292,7 @@ int reset_peak_delay(void)
  */
 u64 increment_curw_blocked(void)
 {
-	return (u64) atomic64_inc_return(&blocked_current_window);
+	return (u64)atomic64_inc_return(&blocked_current_window);
 }
 
 /**
@@ -291,7 +302,6 @@ u64 increment_curw_blocked(void)
  */
 u64 compres_wstats_blocked(void)
 {
-
 	unsigned long flags;
 	u64 curr_blocked;
 #ifdef _RCU_PROTECTED

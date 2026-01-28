@@ -40,12 +40,12 @@
 static wait_queue_head_t syscall_wqueue;
 static atomic64_t invoks = ATOMIC64_INIT(0);
 
-static bool unloading		   = false;
-static atomic_t active_threads  = ATOMIC_INIT(0);
+static bool unloading;
+static atomic_t active_threads = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(unload_wqueue);
 
-static bool status	  = DEFAULT_STATUS;
-static u64 max_invoks   = DEFAULT_MAX_INVOKS;
+static bool status = DEFAULT_STATUS;
+static u64 max_invoks = DEFAULT_MAX_INVOKS;
 static bool fast_unload = DEFAULT_FAST_UNLOAD;
 
 #ifdef _FTRACE_HOOKING
@@ -65,8 +65,8 @@ static int __disable_monitoring(void);
  *
  * @return int 0 on success, negative error code on failure
  */
-int setup_monitor(void) {
-
+int setup_monitor(void)
+{
 	init_waitqueue_head(&syscall_wqueue);
 	PR_DEBUG("Initialized monitor wait queue\n");
 	init_waitqueue_head(&unload_wqueue);
@@ -79,8 +79,12 @@ int setup_monitor(void) {
  * @brief Cleanup the monitor structure. Set unloading flag and wake up wait queue.
  *
  */
-void cleanup_monitor(void) {
+void cleanup_monitor(void)
+{
 	unloading = true;
+
+	// Ensure memory operations are completed before proceeding
+	// so that other CPUs see the updated unloading flag
 	mb();
 
 	// Wake up all waiting threads to allow them to exit
@@ -110,17 +114,16 @@ void cleanup_monitor(void) {
 	// inside the syscall wrapper have already exited it
 	PR_DEBUG("Waiting for outcoming threads to exit syscall wrapper\n");
 	synchronize_rcu();
-
 }
-
 
 /**
  * @brief Get the monitor invoks count in current time window
  *
  * @return u64
  */
-inline u64 get_curw_invoks(void) {
-	return (u64) atomic64_read(&invoks);
+u64 get_curw_invoks(void)
+{
+	return (u64)atomic64_read(&invoks);
 }
 
 /**
@@ -128,8 +131,9 @@ inline u64 get_curw_invoks(void) {
  *
  * @return u64 New invoks count
  */
-static inline u64 increment_curw_invoks(void) {
-	return (u64) atomic64_inc_return(&invoks);
+static inline u64 increment_curw_invoks(void)
+{
+	return (u64)atomic64_inc_return(&invoks);
 }
 
 /**
@@ -137,17 +141,18 @@ static inline u64 increment_curw_invoks(void) {
  *
  * @return u64 Previous invoks count
  */
-inline u64 reset_curw_invoks(void) {
+u64 reset_curw_invoks(void)
+{
 	return atomic64_xchg(&invoks, 0);
 }
-
 
 /**
  * @brief Get the monitor max invoks limit
  *
  * @return unsigned long
  */
-inline u64 get_monitor_max_invoks(void) {
+u64 get_monitor_max_invoks(void)
+{
 	return READ_ONCE(max_invoks);
 }
 
@@ -157,7 +162,8 @@ inline u64 get_monitor_max_invoks(void) {
  * @param max New maximum invoks limit
  * @return int 0 on success, negative error code on failure
  */
-int set_monitor_max_invoks(u64 max) {
+int set_monitor_max_invoks(u64 max)
+{
 #ifdef _FTRACE_HOOKING
 #elif defined(_DISCOVER_HOOKING)
 	unsigned long minvoks_flags;
@@ -167,7 +173,8 @@ int set_monitor_max_invoks(u64 max) {
 	int ret = 0;
 
 	// Check if the value is changing
-	if (unlikely(max == get_monitor_max_invoks())) return 0;
+	if (unlikely(max == get_monitor_max_invoks()))
+		return 0;
 
 #ifdef _FTRACE_HOOKING
 	// Write the max_invoks under mutex
@@ -227,13 +234,13 @@ enable_monitor_err:
 	return ret;
 }
 
-
 /**
  * @brief Get the monitor status (enabled/disabled)
  *
  * @return bool
  */
-inline bool get_monitor_status(void) {
+bool get_monitor_status(void)
+{
 	return READ_ONCE(status);
 }
 
@@ -242,7 +249,8 @@ inline bool get_monitor_status(void) {
  *
  * @return int 0 on success, negative error code on failure
  */
-static int enable_monitoring(void) {
+static int enable_monitoring(void)
+{
 #ifdef _FTRACE_HOOKING
 #elif defined(_DISCOVER_HOOKING)
 	unsigned long flags;
@@ -272,10 +280,14 @@ static int enable_monitoring(void) {
  *
  * @return int
  */
-static int __enable_monitoring(void) {
+static int __enable_monitoring(void)
+{
 	int ret;
 
 	WRITE_ONCE(status, true);
+
+	// Ensure memory operations are completed before proceeding
+	// so that other CPUs see the updated status
 	mb();
 
 	// Re-add all hooks
@@ -297,11 +309,15 @@ static int __enable_monitoring(void) {
 start_timer_err:
 
 	WRITE_ONCE(status, false);
+
+	// Ensure memory operations are completed before proceeding
+	// so that other CPUs see the updated status
 	mb();
 
 	// Remove all hooks
 	ret = uninstall_active_syscalls_hooks();
-	if (ret) PR_ERROR("Failed to remove all syscall hooks when disabling monitoring\n");
+	if (ret)
+		PR_ERROR("Failed to remove all syscall hooks when disabling monitoring\n");
 
 	return ret;
 }
@@ -311,7 +327,8 @@ start_timer_err:
  *
  * @return int 0 on success, negative error code on failure
  */
-static int disable_monitoring(void) {
+static int disable_monitoring(void)
+{
 #ifdef _FTRACE_HOOKING
 #elif defined(_DISCOVER_HOOKING)
 	unsigned long flags;
@@ -341,10 +358,14 @@ static int disable_monitoring(void) {
  *
  * @return int
  */
-static int __disable_monitoring(void) {
+static int __disable_monitoring(void)
+{
 	int ret;
 
 	WRITE_ONCE(status, false);
+
+	// Ensure memory operations are completed before proceeding
+	// so that other CPUs see the updated status
 	mb();
 
 	// Wake up all waiting threads to avoid deadlocks
@@ -369,11 +390,15 @@ static int __disable_monitoring(void) {
 stop_timer_err:
 
 	WRITE_ONCE(status, true);
+
+	// Ensure memory operations are completed before proceeding
+	// so that other CPUs see the updated status
 	mb();
 
 	// Re-add all hooks
 	ret = install_monitored_syscalls_hooks();
-	if (ret) PR_ERROR("Failed to re-add all syscall hooks when enabling monitoring\n");
+	if (ret)
+		PR_ERROR("Failed to re-add all syscall hooks when enabling monitoring\n");
 
 	return ret;
 }
@@ -384,8 +409,10 @@ stop_timer_err:
  * @param s New status
  * @return int 0 on success, negative error code on failure
  */
-inline int set_monitor_status(bool s) {
-	if (unlikely(s == get_monitor_status())) return 0;
+int set_monitor_status(bool s)
+{
+	if (unlikely(s == get_monitor_status()))
+		return 0;
 	PR_DEBUG("Changing monitor status to %s\n", s ? "ENABLED" : "DISABLED");
 	return s ? enable_monitoring() : disable_monitoring();
 }
@@ -396,49 +423,51 @@ inline int set_monitor_status(bool s) {
  * @return true
  * @return false
  */
-inline bool get_monitor_fast_unload(void) {
+bool get_monitor_fast_unload(void)
+{
 	return READ_ONCE(fast_unload);
 }
 
-int set_monitor_fast_unload(bool fu) {
+int set_monitor_fast_unload(bool fu)
+{
 	unsigned long flags;
 
 	// Check if the value is changing
-	if (unlikely(fu == get_monitor_fast_unload())) return 0;
+	if (unlikely(fu == get_monitor_fast_unload()))
+		return 0;
 
 	// Write the fast_unload under write lock
 	write_lock_irqsave(&fast_unload_lock, flags);
 	WRITE_ONCE(fast_unload, fu);
+
+	// Ensure memory operations are completed before proceeding
+	// so that other CPUs see the updated fast_unload value
 	mb();
 	write_unlock_irqrestore(&fast_unload_lock, flags);
 
 	return 0;
 }
 
-
 /**
  * @brief Wake up threads in the monitor wait queue
  *
  */
-inline void wake_monitor_queue(void) {
+void wake_monitor_queue(void)
+{
 	wake_up_nr(&syscall_wqueue, get_monitor_max_invoks());
 }
 
-
-
 /* ---- SYS CALL WRAPPER ---- */
 
-
-
-#define START_TIMER(__start) do { __start = ktime_get(); } while (0)
-#define END_TIMER(__end, __start, __time) \
-	do { \
-		(__end) = ktime_get(); \
-		__time = ktime_to_ms(ktime_sub((__end), (__start))); \
+#define START_TIMER(__start) (__start = ktime_get())
+#define END_TIMER(__end, __start, __time)                                                 \
+	do {                                                                              \
+		(__end) = ktime_get();                                                    \
+		__time = ktime_to_ms(ktime_sub((__end), (__start)));                      \
 		PR_DEBUG_PID("Resuming after %lld ms (%lld s)\n", __time, __time / 1000); \
 	} while (0)
-asmlinkage long syscall_wrapper(struct pt_regs *regs) {
-
+asmlinkage long syscall_wrapper(struct pt_regs *regs)
+{
 	unsigned long original_addr;
 	asmlinkage long (*syscall)(struct pt_regs *);
 	int syscall_idx;
@@ -447,6 +476,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 	s64 delay_ms;
 
 	bool uid_monitored = false, prog_monitored = false;
+	struct file *exe_file = NULL;
 	struct inode *exe_inode = NULL;
 
 	bool inc_blocked = false;
@@ -455,17 +485,17 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 
 	atomic_inc(&active_threads);
 
-	syscall_idx = (int) regs->orig_ax;
+	syscall_idx = (int)regs->orig_ax;
 	if (unlikely(syscall_idx < 0 || syscall_idx >= SYSCALL_TABLE_SIZE)) {
 		PR_ERROR_PID("Invalid syscall index %d\n", syscall_idx);
-		ret = -ENOSYS;
+		ret = -EINVAL;
 		goto invalid_scidx;
 	};
 	syscall_idx = array_index_nospec(syscall_idx, SYSCALL_TABLE_SIZE);
 
 	// Get original syscall address
 	original_addr = get_original_syscall_address(syscall_idx);
-	if (original_addr == (unsigned long) NULL) {
+	if (original_addr == (unsigned long)NULL) {
 		PR_ERROR_PID("Failed to get original address for syscall %d\n", syscall_idx);
 		ret = -EINVAL;
 		goto invalid_original_addr;
@@ -477,7 +507,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 #elif defined(_DISCOVER_HOOKING)
 #else
 #endif
-	syscall = (asmlinkage long (*)(struct pt_regs *)) original_addr;
+	syscall = (asmlinkage long (*)(struct pt_regs *))original_addr;
 
 	PR_DEBUG_PID("Syscall %d invoked\n", syscall_idx);
 	PR_DEBUG_PID("-> thread pid: %d\n", current->pid);
@@ -497,14 +527,16 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 	}
 
 	// Get if prog is monitored
-	task_lock(current);
-	if (current->mm && current->mm->exe_file) {
+	exe_file = get_task_exe(current);
+	if (exe_file) {
 		// Get executable inode
-		exe_inode = file_inode(current->mm->exe_file);
+		exe_inode = file_inode(exe_file);
 		if (exe_inode) {
 #ifdef DEBUG
-			char *prog_path = get_exe_path(current->mm->exe_file);
-			if (!prog_path) PR_WARN_PID("Failed to get executable path during monitoring\n");
+			char *prog_path = get_exe_path(exe_file);
+
+			if (!prog_path)
+				PR_WARN_PID("Failed to get executable path during monitoring\n");
 
 			PR_DEBUG_PID("-> device: %u\n", exe_inode->i_sb->s_dev);
 			PR_DEBUG_PID("-> inode: %lu\n", exe_inode->i_ino);
@@ -517,8 +549,10 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 			prog_monitored = is_prog_monitored(exe_inode->i_ino, exe_inode->i_sb->s_dev);
 			PR_DEBUG_PID("-> program monitored: %s\n", prog_monitored ? "YES" : "NO");
 		}
+
+		// Release executable file
+		fput(exe_file);
 	}
-	task_unlock(current);
 
 	// Get if uid is monitored
 	uid_monitored = is_uid_monitored(current_euid().val);
@@ -581,7 +615,6 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs) {
 
 		// If we reach here, we will try to increment again.
 		PR_DEBUG_PID("Retrying to acquire slot...\n");
-
 	}
 
 allow_syscall:
@@ -593,7 +626,8 @@ allow_syscall:
 	update_peak_delay(delay_ms, syscall_idx);
 
 run_syscall:
-	if (unlikely(unloading)) PR_INFO_PID("Running syscall before module unload\n");
+	if (unlikely(unloading))
+		PR_INFO_PID("Running syscall before module unload\n");
 	ret = syscall(regs);
 
 fast_unload_exit:
@@ -602,9 +636,10 @@ invalid_scidx:
 invalid_original_addr:
 
 	// Decrement active threads count and wake up unload wait queue if needed
-	if (atomic_dec_and_test(&active_threads)) wake_up(&unload_wqueue);
-	if (unlikely(unloading)) PR_INFO_PID("Exiting syscall wrapper, active threads remaining: %d\n", atomic_read(&active_threads));
+	if (atomic_dec_and_test(&active_threads))
+		wake_up(&unload_wqueue);
+	if (unlikely(unloading))
+		PR_INFO_PID("Exiting syscall wrapper, active threads remaining: %d\n", atomic_read(&active_threads));
 
 	return ret;
-
 }

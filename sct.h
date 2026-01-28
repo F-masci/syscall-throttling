@@ -1,6 +1,12 @@
 #pragma once
 
+#ifndef EXPORT_SYMTAB
 #define EXPORT_SYMTAB
+#endif
+
+// #ifndef EXPORT_SYMBOL_GPL
+// #define EXPORT_SYMBOL_GPL
+// #endif
 
 #ifndef __KERNEL__
 #define __KERNEL__
@@ -17,9 +23,9 @@
  *   is active (to avoid dynamic allocation overhead).
  */
 #if !defined(SPINLOCK_PROTECTED) && !defined(LOW_MEMORY)
-	#define _RCU_PROTECTED
+#define _RCU_PROTECTED
 #else
-	#define _SPINLOCK_PROTECTED
+#define _SPINLOCK_PROTECTED
 #endif
 
 /**
@@ -28,9 +34,9 @@
  * - FTRACE_HOOKING is used if explicitly requested, providing better compatibility.
  */
 #ifndef FTRACE_HOOKING
-	#define _DISCOVER_HOOKING
+#define _DISCOVER_HOOKING
 #else
-	#define _FTRACE_HOOKING
+#define _FTRACE_HOOKING
 #endif
 
 #include <linux/module.h>
@@ -51,11 +57,11 @@
 
 #define MODULE_NAME "SCT"
 
-#define TIMER_INTERVAL_S	10
-#define TIMER_INTERVAL_MS   (TIMER_INTERVAL_S * 1000)
-#define DEFAULT_STATUS	  true
+#define TIMER_INTERVAL_S 10
+#define TIMER_INTERVAL_MS (TIMER_INTERVAL_S * 1000)
+#define DEFAULT_STATUS true
 #define DEFAULT_FAST_UNLOAD false
-#define DEFAULT_MAX_INVOKS  100
+#define DEFAULT_MAX_INVOKS 100
 
 #define PR_DEBUG(fmt, ...) pr_debug("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
 #define PR_DEBUG_PID(fmt, ...) PR_DEBUG("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)
