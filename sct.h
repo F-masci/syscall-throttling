@@ -13,13 +13,13 @@
 /**
  * @brief Selection strategy for concurrency mechanism.
  * - RCU is the default for best read performance (Wait-Free readers).
- * - Spinlock is used if explicitly requested OR if LOW_MEMORY mode 
+ * - Spinlock is used if explicitly requested OR if LOW_MEMORY mode
  *   is active (to avoid dynamic allocation overhead).
  */
 #if !defined(SPINLOCK_PROTECTED) && !defined(LOW_MEMORY)
-    #define _RCU_PROTECTED
+	#define _RCU_PROTECTED
 #else
-    #define _SPINLOCK_PROTECTED
+	#define _SPINLOCK_PROTECTED
 #endif
 
 /**
@@ -28,9 +28,9 @@
  * - FTRACE_HOOKING is used if explicitly requested, providing better compatibility.
  */
 #ifndef FTRACE_HOOKING
-    #define _DISCOVER_HOOKING
+	#define _DISCOVER_HOOKING
 #else
-    #define _FTRACE_HOOKING
+	#define _FTRACE_HOOKING
 #endif
 
 #include <linux/module.h>
@@ -51,9 +51,9 @@
 
 #define MODULE_NAME "SCT"
 
-#define TIMER_INTERVAL_S    10
+#define TIMER_INTERVAL_S	10
 #define TIMER_INTERVAL_MS   (TIMER_INTERVAL_S * 1000)
-#define DEFAULT_STATUS      true
+#define DEFAULT_STATUS	  true
 #define DEFAULT_FAST_UNLOAD false
 #define DEFAULT_MAX_INVOKS  100
 

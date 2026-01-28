@@ -1,14 +1,14 @@
 /**
  * @file disc.c
  * @author Francesco Masci (francescomasci@outlook.com)
- * 
+ *
  * @brief This file implements the discover hooking mechanism for syscalls. It
  * 	  	  provides functions to set up and clean up the discover hooking mode, the
- *     	  mechanism to save and restore the original syscall table, and helper functions.
- * 
+ *	 	  mechanism to save and restore the original syscall table, and helper functions.
+ *
  * @version 1.0
  * @date 2026-01-26
- * 
+ *
  */
 
 #include <linux/module.h>
@@ -37,11 +37,11 @@ extern int sys_vtpmo(unsigned long vaddr);
 #define MAX_ADDR			0xfffffffffff00000ULL
 #define FIRST_NI_SYSCALL	134
 #define SECOND_NI_SYSCALL	174
-#define THIRD_NI_SYSCALL	182 
+#define THIRD_NI_SYSCALL	182
 #define FOURTH_NI_SYSCALL	183
-#define FIFTH_NI_SYSCALL	214	
-#define SIXTH_NI_SYSCALL	215	
-#define SEVENTH_NI_SYSCALL	236	
+#define FIFTH_NI_SYSCALL	214
+#define SIXTH_NI_SYSCALL	215
+#define SEVENTH_NI_SYSCALL	236
 
 #define ENTRIES_TO_EXPLORE 256
 
@@ -59,7 +59,7 @@ static unsigned long * original_syscall_addrs = NULL;
 
 /**
  * @brief Get the syscall table address
- * 
+ *
  * @return unsigned long** Address of the syscall table
  */
 unsigned long ** get_syscall_table_addr(void){
@@ -68,7 +68,7 @@ unsigned long ** get_syscall_table_addr(void){
 
 /**
  * @brief Get the array of original syscall addresses
- * 
+ *
  * @return unsigned long* Array of original syscall addresses
  */
 unsigned long * get_original_syscall_addrs(void){
@@ -77,14 +77,14 @@ unsigned long * get_original_syscall_addrs(void){
 
 /**
  * @brief Checks if the area is good for syscall table
- * 
+ *
  * @param addr Address to check
  * @return int 1 if good, 0 otherwise
  */
 static int good_area(unsigned long * addr){
 	int i;
-	for(i=1;i<FIRST_NI_SYSCALL;i++){
-		if(addr[i] == addr[FIRST_NI_SYSCALL]) goto bad_area;
+	for (i=1;i<FIRST_NI_SYSCALL;i++){
+		if (addr[i] == addr[FIRST_NI_SYSCALL]) goto bad_area;
 	}
 	return 1;
 bad_area:
@@ -93,7 +93,7 @@ bad_area:
 
 /**
  * @brief Validates a page as syscall table
- * 
+ *
  * @param addr Address to validate
  * @return int 1 if valid, 0 otherwise
  */
@@ -101,28 +101,28 @@ static int validate_page(unsigned long *addr){
 	int i = 0;
 	unsigned long page 	= (unsigned long) addr;
 	unsigned long new_page 	= (unsigned long) addr;
-	for(; i < PAGE_SIZE; i+=sizeof(void*)){		
+	for (; i < PAGE_SIZE; i+=sizeof(void*)){
 		new_page = page+i+SEVENTH_NI_SYSCALL*sizeof(void*);
-			
+
 		// If the table occupies 2 pages check if the second one is materialized in a frame
-		if( 
+		if (
 			( (page+PAGE_SIZE) == (new_page & ADDRESS_MASK) )
 			&& sys_vtpmo(new_page) == NO_MAP
-		) 
+		)
 			break;
 		// go for patter matching
 		addr = (unsigned long*) (page+i);
-		if(
-			   ( (addr[FIRST_NI_SYSCALL] & 0x3  ) == 0 )		
-			   && (addr[FIRST_NI_SYSCALL] != 0x0 )			// not points to 0x0	
-			   && (addr[FIRST_NI_SYSCALL] > 0xffffffff00000000 )	// not points to a locatio lower than 0xffffffff00000000	
-	//&& ( (addr[FIRST_NI_SYSCALL] & START) == START ) 	
+		if (
+			   ( (addr[FIRST_NI_SYSCALL] & 0x3  ) == 0 )
+			   && (addr[FIRST_NI_SYSCALL] != 0x0 )			// not points to 0x0
+			   && (addr[FIRST_NI_SYSCALL] > 0xffffffff00000000 )	// not points to a locatio lower than 0xffffffff00000000
+	//&& ( (addr[FIRST_NI_SYSCALL] & START) == START )
 			&&   ( addr[FIRST_NI_SYSCALL] == addr[SECOND_NI_SYSCALL] )
-			&&   ( addr[FIRST_NI_SYSCALL] == addr[THIRD_NI_SYSCALL]	 )	
+			&&   ( addr[FIRST_NI_SYSCALL] == addr[THIRD_NI_SYSCALL]	 )
 			&&   ( addr[FIRST_NI_SYSCALL] == addr[FOURTH_NI_SYSCALL] )
-			&&   ( addr[FIRST_NI_SYSCALL] == addr[FIFTH_NI_SYSCALL] )	
+			&&   ( addr[FIRST_NI_SYSCALL] == addr[FIFTH_NI_SYSCALL] )
 			&&   ( addr[FIRST_NI_SYSCALL] == addr[SIXTH_NI_SYSCALL] )
-			&&   ( addr[FIRST_NI_SYSCALL] == addr[SEVENTH_NI_SYSCALL] )	
+			&&   ( addr[FIRST_NI_SYSCALL] == addr[SEVENTH_NI_SYSCALL] )
 			&&   (good_area(addr))
 		){
 			hacked_syscall_tbl = (void*)(addr);
@@ -134,27 +134,27 @@ static int validate_page(unsigned long *addr){
 
 /**
  * @brief Finds the syscall table in memory
- * 
+ *
  * @return void Side effect: sets hacked_syscall_tbl if found
  */
 static void syscall_table_finder(void){
 	unsigned long k; // current page
 	unsigned long candidate; // current page
 
-	for(k=START; k < MAX_ADDR; k+=4096){	
+	for (k=START; k < MAX_ADDR; k+=4096){
 		candidate = k;
-		if((sys_vtpmo(candidate) != NO_MAP)){
+		if ((sys_vtpmo(candidate) != NO_MAP)){
 			// check if candidate maintains the syscall_table
-			if(validate_page( (unsigned long *)(candidate)) ) {
+			if (validate_page( (unsigned long *)(candidate)) ) {
 				break;
 			}
 		}
 	}
-	
+
 }
 
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0) 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 #define INST_LEN 5
 char jump_inst[INST_LEN];
 unsigned long x64_sys_call_addr;
@@ -164,32 +164,32 @@ static struct kprobe kp_x64_sys_call = { .symbol_name = "x64_sys_call" };
 
 /**
  * @brief Calls the original syscall from syscall table
- * 
+ *
  * @param regs CPU registers
  * @param nr Syscall number
  */
 static inline void call(struct pt_regs *regs, unsigned int nr){
-    	asm volatile("mov (%1, %0, 8), %%rax\n\t"
-             "jmp __x86_indirect_thunk_rax\n\t"
-             :
-             : "r"((long)nr), "r"(hacked_syscall_tbl)
-             : "rax");
+		asm volatile("mov (%1, %0, 8), %%rax\n\t"
+			 "jmp __x86_indirect_thunk_rax\n\t"
+			 :
+			 : "r"((long)nr), "r"(hacked_syscall_tbl)
+			 : "rax");
 }
 
 #endif
 
 /**
  * @brief Set up discover hooking mode
- * 
- * @return int 
+ *
+ * @return int
  */
 int setup_discover_hook(void) {
-	
+
 	int ret = 0;
 
 	// Find syscall table
 	syscall_table_finder();
-	if(!hacked_syscall_tbl){
+	if (!hacked_syscall_tbl){
 		PR_ERROR("Failed to find the sys_call_table\n");
 		return -EINVAL;
 	}
@@ -197,7 +197,7 @@ int setup_discover_hook(void) {
 
 	// Save original syscall addresses
 	original_syscall_addrs = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(unsigned long), GFP_KERNEL);
-	if(!original_syscall_addrs) {
+	if (!original_syscall_addrs) {
 		PR_ERROR("Cannot allocate memory for saving original syscall addresses\n");
 		return -ENOMEM;
 	}
@@ -227,16 +227,16 @@ int setup_discover_hook(void) {
 	offset = (unsigned long)call - x64_sys_call_addr - INST_LEN;
 	memcpy(jump_inst + 1, &offset, sizeof(int));
 	PR_DEBUG("Jump instruction for x64_sys_call prepared\n");
-	
+
 #endif
 
-	begin_syscall_table_hack();	
+	begin_syscall_table_hack();
 	PR_DEBUG("Syscall table hacking started\n");
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
-//these kernel versions are configured to avoid the usage of the syscall table 
+//these kernel versions are configured to avoid the usage of the syscall table
 //this piece of code intercepts the activation of the syscall dispatcher and
-//redirects control to the function that restores the usage of the syscall table 
+//redirects control to the function that restores the usage of the syscall table
 //it may be possible that I did not check all the kernel cofigurations
 //the user can add here whichever configuration he wants that avoids the
 //usage of the syscall table while dispatching syscalls
@@ -252,10 +252,10 @@ int setup_discover_hook(void) {
 
 /**
  * @brief Clean up discover hooking mode
- * 
+ *
  */
 void cleanup_discover_hook(void) {
-	
+
 	begin_syscall_table_hack();
 	PR_DEBUG("Syscall table hacking started for cleanup\n");
 

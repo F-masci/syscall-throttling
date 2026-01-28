@@ -174,6 +174,12 @@ sparse:
 	@# Post-analysis cleanup to avoid leaving stray .o files
 	@$(MAKE) -C $(KDIR) M=$(PWD) clean > /dev/null
 
+format:
+	@echo "=== Formatting code style ==="
+	@# Format all .c and .h files, excluding build/out directories if necessary
+	@find . -name "*.c" -o -name "*.h" -not -path "./_examples/*" -not -path "./out/*" | xargs clang-format -i
+	@echo "Code formatted."
+
 vm-test:
 	@echo "=== Start test in Vagrant VM ==="
 	vagrant up

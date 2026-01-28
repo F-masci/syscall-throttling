@@ -3,7 +3,7 @@
  * @author Francesco Masci (francescomasci@outlook.com)
  * 
  * @brief This file implements the syscall table hacking mechanisms. It provides
- *        functions to disable and enable write protection on the syscall table.
+ *		functions to disable and enable write protection on the syscall table.
  * 
  * @version 1.0
  * @date 2026-01-26
@@ -25,8 +25,8 @@ static unsigned long cr0, cr4;
  * @param val Value to write
  */
 static inline void write_cr0_forced(unsigned long val){
-    unsigned long __force_order;
-    asm volatile("mov %0, %%cr0" : "+r"(val), "+m"(__force_order));
+	unsigned long __force_order;
+	asm volatile("mov %0, %%cr0" : "+r"(val), "+m"(__force_order));
 }
 
 /**
@@ -34,7 +34,7 @@ static inline void write_cr0_forced(unsigned long val){
  * 
  */
 static inline void protect_memory(void){
-    write_cr0_forced(cr0);
+	write_cr0_forced(cr0);
 }
 
 /**
@@ -42,7 +42,7 @@ static inline void protect_memory(void){
  * 
  */
 static inline void unprotect_memory(void){
-    write_cr0_forced(cr0 & ~X86_CR0_WP);
+	write_cr0_forced(cr0 & ~X86_CR0_WP);
 }
 
 
@@ -52,8 +52,8 @@ static inline void unprotect_memory(void){
  * @param val Value to write
  */
 static inline void write_cr4_forced(unsigned long val){
-    unsigned long __force_order;
-    asm volatile("mov %0, %%cr4" : "+r"(val), "+m"(__force_order));
+	unsigned long __force_order;
+	asm volatile("mov %0, %%cr4" : "+r"(val), "+m"(__force_order));
 }
 
 /**
@@ -62,8 +62,8 @@ static inline void write_cr4_forced(unsigned long val){
  */
 static inline void conditional_cet_disable(void){
 #ifdef X86_CR4_CET
-    if (cr4 & X86_CR4_CET)
-            write_cr4_forced(cr4 & ~X86_CR4_CET);
+	if (cr4 & X86_CR4_CET)
+			write_cr4_forced(cr4 & ~X86_CR4_CET);
 #endif
 }
 
@@ -73,8 +73,8 @@ static inline void conditional_cet_disable(void){
  */
 static inline void conditional_cet_enable(void){
 #ifdef X86_CR4_CET
-    if (cr4 & X86_CR4_CET)
-            write_cr4_forced(cr4);
+	if (cr4 & X86_CR4_CET)
+			write_cr4_forced(cr4);
 #endif
 }
 
@@ -83,11 +83,11 @@ static inline void conditional_cet_enable(void){
  * 
  */
 inline void begin_syscall_table_hack(void){
-    preempt_disable();
-    cr0 = read_cr0();
-    cr4 = native_read_cr4();
-    conditional_cet_disable();
-    unprotect_memory();
+	preempt_disable();
+	cr0 = read_cr0();
+	cr4 = native_read_cr4();
+	conditional_cet_disable();
+	unprotect_memory();
 }
 
 /**
@@ -95,7 +95,7 @@ inline void begin_syscall_table_hack(void){
  * 
  */
 inline void end_syscall_table_hack(void){
-    protect_memory();
-    conditional_cet_enable();
-    preempt_enable();
+	protect_memory();
+	conditional_cet_enable();
+	preempt_enable();
 }

@@ -3,24 +3,24 @@
 #include "sct.h"
 #include "_syst.h"
 
-#define UID_HT_SIZE     10
+#define UID_HT_SIZE	 10
 #define PNAMES_HT_SIZE  16
 
 struct uid_node {
-    struct rcu_head rcu;
-    uid_t uid;
-    struct hlist_node node;
+	struct rcu_head rcu;
+	uid_t uid;
+	struct hlist_node node;
 };
 
 struct prog_node {
-    struct rcu_head rcu;
+	struct rcu_head rcu;
 #ifndef LOW_MEMORY
-    char * fpath;
+	char *fpath;
 #else
 #endif
-    unsigned long inode;
-    dev_t device;
-    struct hlist_node node;
+	unsigned long inode;
+	dev_t device;
+	struct hlist_node node;
 };
 
 void setup_monitor_filter(void);
