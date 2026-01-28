@@ -142,7 +142,7 @@ void get_peak_delayed_syscall(struct sysc_delayed_t *_out)
 bool update_peak_delay(s64 delay_ms, int syscall)
 {
 	unsigned long flags;
-	struct file *exe_file = NULL;
+	struct file __rcu *exe_file = NULL;
 	char *prog_name = NULL;
 	bool updated = false;
 #ifdef _RCU_PROTECTED

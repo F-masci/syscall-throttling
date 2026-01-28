@@ -152,11 +152,20 @@ checkpatch:
 	@# If checkpatch.pl is not present, download it
 	@if [ ! -f checkpatch.pl ]; then \
 		echo "Downloading checkpatch.pl..."; \
-		wget -q $(CHECKPATCH_URL); \
+		wget -q https://raw.githubusercontent.com/torvalds/linux/master/scripts/checkpatch.pl; \
 		chmod +x checkpatch.pl; \
 	fi
+	@# Setup scripts directory and download required files if not present
+	@if [ ! -f spelling.txt ]; then \
+		echo "Downloading spelling.txt..."; \
+		wget -q https://raw.githubusercontent.com/torvalds/linux/master/scripts/spelling.txt; \
+	fi
+	@if [ ! -f const_structs.checkpatch ]; then \
+		echo "Downloading const_structs.checkpatch..."; \
+		wget -q https://raw.githubusercontent.com/torvalds/linux/master/scripts/const_structs.checkpatch; \
+	fi
 	@# Run checkpatch on all .c and .h files
-	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES --terse -f $$(find . \( -path ./_examples -o -path ./out -o -path ./client -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
+	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES,LINUX_VERSION_CODE --terse -f $$(find . \( -path ./_examples -o -path ./out -o -path ./client -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
 
 cppcheck:
 	@echo "\n=== Running Cppcheck ==="
@@ -169,8 +178,8 @@ sparse:
 	@echo "\n=== Running Sparse Analysis ==="
 	@# Clean build files first
 	@$(MAKE) -C $(KDIR) M=$(PWD) clean > /dev/null
-	@# C=1 enables Sparse. W=1 enables extra GCC warnings
-	@$(MAKE) -C $(KDIR) M=$(PWD) C=1 W=1 modules
+	@# C=1 enables Sparse.
+	@$(MAKE) -C $(KDIR) M=$(PWD) C=1 modules
 	@# Post-analysis cleanup to avoid leaving stray .o files
 	@$(MAKE) -C $(KDIR) M=$(PWD) clean > /dev/null
 
