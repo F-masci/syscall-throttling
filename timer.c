@@ -52,10 +52,11 @@ static void monitor_timer_callback(struct timer_list *t)
  * @brief Initializes the monitor timer
  * @return int 0 on success, negative error code on failure
  */
-void setup_monitor_timer(void)
+int setup_monitor_timer(void)
 {
 	PR_DEBUG("Monitor timer initializing\n");
 	timer_setup(&timer, monitor_timer_callback, 0);
+	return 0;
 }
 
 /**

@@ -56,25 +56,25 @@ void print_usage(const char *prog_name)
 	printf("  Client to configure the System Call Throttling module.\n\n");
 
 	printf("Configuration Commands:\n");
-	printf("  add			  Adds a monitoring rule (requires --sys, --uid, or --prog)\n");
-	printf("  remove		   Removes a monitoring rule (requires --sys, --uid, or --prog)\n");
+	printf("  add			Adds a monitoring rule (requires --sys, --uid, or --prog)\n");
+	printf("  remove		Removes a monitoring rule (requires --sys, --uid, or --prog)\n");
 	printf("  limit			Set the max syscall invocations limit (requires --val)\n");
-	printf("  status		   Set the monitor status 1=ON, 0=OFF (requires --val)\n");
-	printf("  fast-unload	  Set the fast unload status 1=ON, 0=OFF (requires --val)\n\n");
+	printf("  status		Set the monitor status 1=ON, 0=OFF (requires --val)\n");
+	printf("  fast-unload		Set the fast unload status 1=ON, 0=OFF (requires --val)\n\n");
 
 	printf("Reading Commands:\n");
-	printf("  get-status	   Get general monitor status\n");
+	printf("  get-status		Get general monitor status\n");
 	printf("  get-stats		Get throttling statistics\n");
 	printf("  get-delay		Get peak delay information\n");
-	printf("  get-list		 Get list of monitored items (requires --sys, --uid, or --prog)\n\n");
+	printf("  get-list		Get list of monitored items (requires --sys, --uid, or --prog)\n\n");
 
 	printf("Options:\n");
-	printf("  --sys <nr>	   Specifies the system call number\n");
-	printf("  --uid <id>	   Specifies the User ID\n");
-	printf("  --prog <name>	Specifies the process name\n");
-	printf("  --val <num>	  Specifies a numeric value (for limit/status/fast-unload)\n");
-	printf("  --dev <path>	 Specifies the device path (Default: %s)\n", DEFAULT_DEVICE);
-	printf("  -h, --help	   Show this help message\n\n");
+	printf("  --sys <nr>		Specifies the system call number\n");
+	printf("  --uid <id>		Specifies the User ID\n");
+	printf("  --prog <name>		Specifies the process name\n");
+	printf("  --val <num>		Specifies a numeric value (for limit/status/fast-unload)\n");
+	printf("  --dev <path>		Specifies the device path (Default: %s)\n", DEFAULT_DEVICE);
+	printf("  -h, --help		Show this help message\n\n");
 
 	printf("Examples:\n");
 	printf("  %s add --sys 59\n", prog_name);
@@ -167,6 +167,7 @@ int main(int argc, char **argv)
 
 	int opt;
 	int option_index = 0;
+	int oflags = O_RDWR;
 
 	// Long options structure
 	// FIX: Changed optional_argument to required_argument to support space separation (e.g., --prog mkdir)
@@ -217,22 +218,31 @@ int main(int argc, char **argv)
 	if (optind < argc) {
 		if (strcmp(argv[optind], "add") == 0) {
 			cfg.action = ACTION_ADD;
+			oflags = O_RDWR;
 		} else if (strcmp(argv[optind], "remove") == 0) {
 			cfg.action = ACTION_REMOVE;
+			oflags = O_RDWR;
 		} else if (strcmp(argv[optind], "limit") == 0) {
 			cfg.action = ACTION_SET_LIMIT;
+			oflags = O_RDWR;
 		} else if (strcmp(argv[optind], "status") == 0) {
 			cfg.action = ACTION_SET_STATUS;
+			oflags = O_RDWR;
 		} else if (strcmp(argv[optind], "fast-unload") == 0) {
 			cfg.action = ACTION_SET_FAST_UNLOAD;
+			oflags = O_RDWR;
 		} else if (strcmp(argv[optind], "get-status") == 0) {
 			cfg.action = ACTION_GET_STATUS;
+			oflags = O_RDONLY;
 		} else if (strcmp(argv[optind], "get-stats") == 0) {
 			cfg.action = ACTION_GET_STATS;
+			oflags = O_RDONLY;
 		} else if (strcmp(argv[optind], "get-delay") == 0) {
 			cfg.action = ACTION_GET_PEAK_DELAY;
+			oflags = O_RDONLY;
 		} else if (strcmp(argv[optind], "get-list") == 0) {
 			cfg.action = ACTION_GET_LIST;
+			oflags = O_RDONLY;
 		} else {
 			fprintf(stderr, "Error: Unknown action '%s'.\n", argv[optind]);
 			return INVALID_ARGUMENTS_ERROR;
@@ -277,7 +287,7 @@ int main(int argc, char **argv)
 	}
 
 	// Device open
-	int fd = open(cfg.device_path, O_RDWR);
+	int fd = open(cfg.device_path, oflags);
 	if (fd < 0) {
 		perror("Error opening device");
 		fprintf(stderr, "Check that the module is loaded and that the path '%s' is correct.\n", cfg.device_path);
@@ -385,25 +395,25 @@ int main(int argc, char **argv)
 	switch (cfg.action) {
 	case ACTION_GET_STATUS:
 		printf("========= MONITOR STATUS =========\n");
-		printf("Enabled:	 %s\n", status_info.enabled ? "YES" : "NO");
-		printf("Fast Unload: %s\n", status_info.fast_unload ? "YES" : "NO");
-		printf("Max Invoks:  %lu\n", status_info.max_invoks);
-		printf("Cur Invoks:  %lu\n", status_info.cur_invoks);
-		printf("Window:	  %lu sec\n", status_info.window_sec);
+		printf("Enabled:	%s\n", status_info.enabled ? "YES" : "NO");
+		printf("Fast Unload:	%s\n", status_info.fast_unload ? "YES" : "NO");
+		printf("Max Invoks:	%lu\n", status_info.max_invoks);
+		printf("Cur Invoks:	%lu\n", status_info.cur_invoks);
+		printf("Window:		%lu sec\n", status_info.window_sec);
 		printf("==================================\n");
 		break;
 
 	case ACTION_GET_STATS:
 		printf("======== THROTTLING STATS ========\n");
-		printf("Peak Blocked Threads: %lu\n", stats_info.peak_blocked);
-		printf("Avg Blocked Threads:  %lu.%02lu\n", stats_info.avg_blocked_int, stats_info.avg_blocked_dec);
+		printf("Peak Blocked Threads:	%lu\n", stats_info.peak_blocked);
+		printf("Avg Blocked Threads:	%lu.%02lu\n", stats_info.avg_blocked_int, stats_info.avg_blocked_dec);
 		printf("==================================\n");
 		break;
 
 	case ACTION_GET_PEAK_DELAY:
 		printf("========= PEAK DELAY INFO ========\n");
 		if (delay_info.syscall > -1) {
-			printf("Delay:	  %ld ms\n", delay_info.delay_ms);
+			printf("Delay:		%ld ms\n", delay_info.delay_ms);
 			printf("Syscall:	%d\n", delay_info.syscall);
 			printf("UID:		%u\n", delay_info.uid);
 			printf("Program:	%s\n", delay_info.prog_name);

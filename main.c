@@ -57,7 +57,11 @@ static int __init sct_init(void)
 	/* ---- FILTER ---- */
 
 	// Initialize filter structure
-	setup_monitor_filter();
+	ret = setup_monitor_filter();
+	if (ret < 0) {
+		PR_ERROR("Filter setup failed with %d\n", ret);
+		goto err_filter;
+	}
 	PR_INFO("Filter structures initialized successfully\n");
 
 	/* ---- MONITOR ---- */
@@ -73,7 +77,11 @@ static int __init sct_init(void)
 	/* ---- TIMER ---- */
 
 	// Setup monitor timer
-	setup_monitor_timer();
+	ret = setup_monitor_timer();
+	if (ret < 0) {
+		PR_ERROR("Timer setup failed with %d\n", ret);
+		goto err_timer;
+	}
 	PR_INFO("Timer setup completed successfully\n");
 
 	// Start monitor timer
@@ -117,6 +125,7 @@ err_timer:
 	cleanup_monitor();
 err_monitor:
 	cleanup_monitor_filter();
+err_filter:
 	cleanup_monitor_stats();
 err_stats:
 
@@ -127,7 +136,6 @@ err_stats:
 
 /**
  * @brief Cleanup the system call throttling module
- \*
  */
 static void __exit sct_exit(void)
 {

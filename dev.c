@@ -23,6 +23,21 @@ static struct class *dclass;
 static struct device *dnode;
 
 /**
+ * @brief Callback to set the device node permissions
+ *
+ * @param dev Pointer to the device
+ * @param mode Pointer to the mode to modify
+ * @return NULL
+ */
+static char *monitor_devnode(const struct device *dev, umode_t *mode)
+{
+	if (mode)
+		*mode = 0664;
+
+	return NULL;
+}
+
+/**
  * @brief Set the up monitor device object.
  * Creates and registers the character device for syscall monitoring
  * and the associated device node in /dev.
@@ -65,6 +80,11 @@ int setup_monitor_device(void)
 		ret = PTR_ERR(dclass);
 		goto err_class;
 	}
+
+	// Set the device node callback
+	// in which the device node permissions are set
+	dclass->devnode = monitor_devnode;
+
 	PR_DEBUG("Device class created successfully\n");
 
 	// Device node creation

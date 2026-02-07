@@ -29,6 +29,18 @@
 #include "timer.h"
 
 /**
+ * @brief Check root permissions.
+ * @note We can also use capable(CAP_SYS_ADMIN) if needed
+ */
+#define REQUIRE_ROOT()										\
+	do {											\
+		if (unlikely(current_euid().val != 0)) {					\
+			PR_ERROR("Permission denied for non-root user\n");			\
+			return -EPERM;								\
+		}										\
+	} while (0)
+
+/**
  * @brief Helper macro for report generation.
  * Print formatted data into kernel buffer and update length
  *
@@ -49,7 +61,8 @@
 #define BYTES_HEADER_STATS 1024 // default is 1024 bytes for Header and Stats
 #define BYTES_PER_SYSCALL_LINE 32 // default is 32 bytes per syscall line
 #define BYTES_PER_UID_LINE 32 // default is 32 bytes per UID line
-#define BYTES_PER_PROG_LINE (PATH_MAX + 64) // default is 4096 bytes per Program line
+#define BYTES_PROG_OVERHEAD 64 // default is 64 bytes per Program overhead
+#define BYTES_PER_PROG_LINE (PATH_MAX + BYTES_PROG_OVERHEAD) // default is 4096 bytes per Program line
 
 /**
  * @brief Read operation for the monitor device.
@@ -135,7 +148,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 	// Compute total size of program names
 	// to avoid exceeding memory limits
 	for (j = 0; j < prog_count; j++)
-		prog_size += strlen(prog_list[j]) + 1;
+		prog_size += strlen(prog_list[j]) + 1 + BYTES_PROG_OVERHEAD;
 
 	prog_size += PAGE_SIZE; // Add margin
 
@@ -164,24 +177,24 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 	// --- General Status ---
 	__SCNPRINTF("========= DEVICE STATUS =========\n");
-	__SCNPRINTF("Status:	  %s\n", status ? "ENABLED" : "DISABLED");
-	__SCNPRINTF("Fast Unload: %s\n", fast_unload ? "ENABLED" : "DISABLED");
-	__SCNPRINTF("Max:		 %llu invocations/s\n", max_invoks);
-	__SCNPRINTF("Win:		 %d secs (%d ms)\n", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
+	__SCNPRINTF("Status:		%s\n", status ? "ENABLED" : "DISABLED");
+	__SCNPRINTF("Fast Unload:	%s\n", fast_unload ? "ENABLED" : "DISABLED");
+	__SCNPRINTF("Max:		%llu invocations/s\n", max_invoks);
+	__SCNPRINTF("Win:		%d secs (%d ms)\n", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
 
 	// --- Throttling Stats ---
 	__SCNPRINTF("======== THROTTLING INFO ========\n");
-	__SCNPRINTF("Current invocations:  %llu\n", cur_invoks);
-	__SCNPRINTF("Peak Blocked Threads: %llu\n", peak_blocked);
-	__SCNPRINTF("Avg Blocked Threads:  %llu.%02llu\n", avg_blocked / AVG_SCALE, avg_blocked % AVG_SCALE);
-	__SCNPRINTF("Observed Window:	  %llu (%llu s)\n", windows_num, windows_num * TIMER_INTERVAL_S);
+	__SCNPRINTF("Current invocations:	%llu\n", cur_invoks);
+	__SCNPRINTF("Peak Blocked Threads:	%llu\n", peak_blocked);
+	__SCNPRINTF("Avg Blocked Threads:	%llu.%02llu\n", avg_blocked / AVG_SCALE, avg_blocked % AVG_SCALE);
+	__SCNPRINTF("Observed Window:	%llu (%llu s)\n", windows_num, windows_num * TIMER_INTERVAL_S);
 
 	__SCNPRINTF("======== PEAK DELAY INFO ========\n");
 	if (peak_delay.syscall > -1) {
-		__SCNPRINTF("Delay:   %lld ms\n", peak_delay.delay_ms);
-		__SCNPRINTF("Syscall: %d\n", peak_delay.syscall);
-		__SCNPRINTF("Program: %s\n", peak_delay.prog_name ? peak_delay.prog_name : "N/A");
-		__SCNPRINTF("UID:	 %d\n", peak_delay.uid);
+		__SCNPRINTF("Delay:	%lld ms\n", peak_delay.delay_ms);
+		__SCNPRINTF("Syscall:	%d\n", peak_delay.syscall);
+		__SCNPRINTF("Program:	%s\n", peak_delay.prog_name ? peak_delay.prog_name : "N/A");
+		__SCNPRINTF("UID:		%d\n", peak_delay.uid);
 	} else {
 		__SCNPRINTF("No delayed syscalls recorded yet.\n");
 	}
@@ -296,17 +309,11 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	size_t fetched_count, real_items, i, flat_prog_buf_size, flat_prog_buf_offset;
 	char *flat_prog_buf = NULL;
 
-	// Check root permissions
-	// We can also use capable(CAP_SYS_ADMIN) if needed
-	if (current_euid().val != 0) {
-		PR_ERROR("Permission denied for non-root user: command %u\n", cmd);
-		return -EPERM;
-	}
-
 	switch (cmd) {
 		/* --- ADD COMMANDS --- */
 
 	case SCT_IOCTL_ADD_SYSCALL:
+		REQUIRE_ROOT();
 		if (copy_from_user(&k_syscall_idx, (int __user *)arg, sizeof(k_syscall_idx))) {
 			PR_ERROR("Failed to copy syscall index from user\n");
 			return -EFAULT;
@@ -323,6 +330,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		break;
 
 	case SCT_IOCTL_ADD_UID:
+		REQUIRE_ROOT();
 		if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) {
 			PR_ERROR("Failed to copy UID from user\n");
 			return -EFAULT;
@@ -337,6 +345,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		break;
 
 	case SCT_IOCTL_ADD_PROG:
+		REQUIRE_ROOT();
 		k_progname = strndup_user((const char __user *)arg, PATH_MAX);
 		if (IS_ERR(k_progname)) {
 			PR_ERROR("Failed to copy prog name from user\n");
@@ -567,6 +576,7 @@ alloc_flat_buf_err:
 		/* --- REMOVE COMMANDS --- */
 
 	case SCT_IOCTL_DEL_SYSCALL:
+		REQUIRE_ROOT();
 		if (copy_from_user(&k_syscall_idx, (int __user *)arg, sizeof(k_syscall_idx))) {
 			PR_ERROR("Failed to copy syscall index from user\n");
 			return -EFAULT;
@@ -582,6 +592,7 @@ alloc_flat_buf_err:
 		break;
 
 	case SCT_IOCTL_DEL_UID:
+		REQUIRE_ROOT();
 		if (copy_from_user(&k_uid, (uid_t __user *)arg, sizeof(k_uid))) {
 			PR_ERROR("Failed to copy UID from user\n");
 			return -EFAULT;
@@ -596,6 +607,7 @@ alloc_flat_buf_err:
 		break;
 
 	case SCT_IOCTL_DEL_PROG:
+		REQUIRE_ROOT();
 		k_progname = strndup_user((const char __user *)arg, PATH_MAX);
 		if (IS_ERR(k_progname)) {
 			PR_ERROR("Failed to copy prog name from user\n");
@@ -615,6 +627,7 @@ alloc_flat_buf_err:
 		/* --- CONFIGURATION COMMANDS --- */
 
 	case SCT_IOCTL_SET_LIMIT:
+		REQUIRE_ROOT();
 		if (copy_from_user(&k_max_invoks, (u64 __user *)arg, sizeof(k_max_invoks))) {
 			PR_ERROR("Failed to copy max invocations limit from user\n");
 			return -EFAULT;
@@ -629,6 +642,7 @@ alloc_flat_buf_err:
 		break;
 
 	case SCT_IOCTL_SET_STATUS:
+		REQUIRE_ROOT();
 		if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) {
 			PR_ERROR("Failed to copy monitor status from user\n");
 			return -EFAULT;
@@ -643,6 +657,7 @@ alloc_flat_buf_err:
 		break;
 
 	case SCT_IOCTL_SET_FAST_UNLOAD:
+		REQUIRE_ROOT();
 		if (copy_from_user(&k_status, (int __user *)arg, sizeof(k_status))) {
 			PR_ERROR("Failed to copy monitor fast unload status from user\n");
 			return -EFAULT;

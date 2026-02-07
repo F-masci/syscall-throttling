@@ -151,10 +151,10 @@ static void syscall_table_finder(void)
 
 #if KERNEL_VERSION(5, 15, 0) <= LINUX_VERSION_CODE
 #define INST_LEN 5
-char jump_inst[INST_LEN];
-unsigned long x64_sys_call_addr;
-char original_x64_sys_call_inst[INST_LEN];
-int offset;
+static char jump_inst[INST_LEN];
+static unsigned long x64_sys_call_addr;
+static char original_x64_sys_call_inst[INST_LEN];
+static int offset;
 static struct kprobe kp_x64_sys_call = { .symbol_name = "x64_sys_call" };
 
 /**

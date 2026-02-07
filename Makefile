@@ -14,7 +14,7 @@ ENABLE_FTRACE := 0
 #
 # 1 = Enable LOW MEMORY mode
 # 0 = Disable LOW MEMORY mode (default)
-ENABLE_LOWMEM := 0
+ENABLE_LOWMEM := 1
 
 # Set to SPINLOCK_PROTECTED to use spinlocks as synchronization method
 # Set to RCU_PROTECTED to use RCU as synchronization method (default)
@@ -187,13 +187,14 @@ vm-test:
 	@echo "--- Compiling in Vagrant VM ---"
 	vagrant ssh -c "mkdir -p /home/vagrant/test && \
 		sudo cp /home/vagrant/module/* /home/vagrant/test -R && \
+		sudo chown -R vagrant:vagrant /home/vagrant/test && \
 		cd /home/vagrant/test && \
 		echo '--- Loading Module ---' && \
 		sudo make clean && \
 		sudo make ENABLE_FTRACE=1 && \
 		sudo make load && \
 		echo '--- Compiling Client ---' && \
-		cd client && make"
+		cd client && sudo make"
 
 	@echo "--- Setup test in Vagrant VM ---"
 	vagrant ssh -c "cd /home/vagrant/test/client && \

@@ -23,7 +23,7 @@ struct prog_node {
 	struct hlist_node node;
 };
 
-void setup_monitor_filter(void);
+int setup_monitor_filter(void);
 void cleanup_monitor_filter(void);
 
 /* ---- SYS CALL MONITORING ---- */

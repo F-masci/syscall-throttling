@@ -38,11 +38,31 @@ static DEFINE_RWLOCK(prog_lock);
 
 /**
  * @brief Set the up monitor filter structure
+ *
+ * @return int 0 on success, negative error code on failure
  */
-void setup_monitor_filter(void)
+int setup_monitor_filter(void)
 {
 	bitmap_zero(syscall_bm, SYSCALL_TABLE_SIZE);
 	PR_DEBUG("Initialized syscall monitoring bitmap\n");
+
+	return 0;
+}
+
+/**
+ * @brief Free a program node in a safe manner for RCU
+ *
+ * @param head RCU head pointer
+ */
+static void prog_node_free_rcu(struct rcu_head *head)
+{
+	struct prog_node *node = container_of(head, struct prog_node, rcu);
+
+#ifndef LOW_MEMORY
+	kfree(node->fpath);
+#endif
+	kfree(node);
+
 }
 
 /**
@@ -73,7 +93,7 @@ void cleanup_monitor_filter(void)
 	// Cleanup program names hash table
 	hash_for_each_safe(progname_ht, bkt, tmp_pn, cur_pn, node) {
 		hash_del_rcu(&cur_pn->node);
-		kfree_rcu(cur_pn, rcu);
+		call_rcu(&cur_pn->rcu, prog_node_free_rcu);
 		atomic64_dec(&prog_count);
 	}
 	PR_DEBUG("Cleared program names monitoring hash table\n");
@@ -352,7 +372,7 @@ uid_monitor_removed:
  * @return struct file* Pointer to the executable file structure, or NULL on failure
  *
  * @note The returned file structure has its reference count incremented.
- * 	The caller is responsible for calling fput() to release the reference.
+ *	The caller is responsible for calling fput() to release the reference.
  */
 struct file *get_task_exe(struct task_struct *task)
 {
@@ -362,11 +382,21 @@ struct file *get_task_exe(struct task_struct *task)
 	if (!task)
 		return NULL;
 
+
 	// RCU read section
 	rcu_read_lock();
-	if (task->mm && task->mm->exe_file) {
-		exe = task->mm->exe_file;
-		get_file(exe);
+	if (task->mm) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 9, 0)
+		exe = get_file_rcu(&task->mm->exe_file);
+#else
+		struct file *temp_exe;
+
+		temp_exe = rcu_dereference(task->mm->exe_file);
+
+		// If temp_exe exists, try to increment the reference count
+		if (temp_exe && get_file_rcu(temp_exe))
+			exe = temp_exe;
+#endif
 	}
 
 	// End RCU read section
@@ -377,45 +407,51 @@ struct file *get_task_exe(struct task_struct *task)
 
 /**
  * @brief Get the current process executable path
+ *
  * @param exe_file Pointer to the executable file structure
  * @return char* Kernel-allocated string containing the path, or NULL on failure
+ *
  * @note The returned string must be freed by the caller using kfree().
- *	   Must be called under task_lock.
+ *	Must be called under task_lock.
  */
 char *get_exe_path(struct file *exe_file)
 {
 	char *buf, *path_str = NULL, *res = NULL;
 
+	// Sanity check
 	if (!exe_file) {
 		PR_ERROR_PID("Executable file pointer is NULL\n");
-		return NULL;
+		goto sanity_err;
 	}
 
 	// Allocate buffer for path
-	buf = kmalloc(PATH_MAX, GFP_ATOMIC);
+	buf = kzalloc(PATH_MAX, GFP_ATOMIC);
 	if (!buf) {
 		PR_ERROR_PID("Failed to allocate memory for executable path buffer\n");
-		return NULL;
+		goto alloc_err;
 	}
 
 	// Search path
 	path_str = d_path(&exe_file->f_path, buf, PATH_MAX);
 	if (IS_ERR(path_str)) {
 		PR_ERROR_PID("Failed to get executable path string\n");
-		kfree(buf);
-		return NULL;
+		goto dpath_err;
 	}
 
 	// Duplicate path string to return
-	res = kstrdup(path_str, GFP_ATOMIC);
+	res = kstrndup(path_str, PATH_MAX, GFP_ATOMIC);
 	if (!res) {
 		PR_ERROR_PID("Failed to duplicate executable path string\n");
-		kfree(buf);
-		return NULL;
+		goto kstrdup_err;
 	}
 
+kstrdup_err:
+dpath_err:
 	// Cleanup and return
 	kfree(buf);
+
+sanity_err:
+alloc_err:
 
 	return res;
 }
@@ -661,10 +697,7 @@ int remove_prog_monitoring(const char *fpath)
 		if (cur->inode == inode->i_ino && cur->device == inode->i_sb->s_dev) {
 			hash_del_rcu(&cur->node);
 			atomic64_dec(&prog_count);
-#ifndef LOW_MEMORY
-			kfree(cur->fpath);
-#endif
-			kfree_rcu(cur, rcu);
+			call_rcu(&cur->rcu, prog_node_free_rcu);
 			PR_DEBUG("Removed program name %s from monitoring list\n", fpath);
 			ret = 0;
 			goto prog_monitor_removed;

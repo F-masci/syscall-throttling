@@ -57,11 +57,14 @@
 
 #define MODULE_NAME "SCT"
 
-#define TIMER_INTERVAL_S 10
+#define TIMER_INTERVAL_S 1
 #define TIMER_INTERVAL_MS (TIMER_INTERVAL_S * 1000)
+
 #define DEFAULT_STATUS true
 #define DEFAULT_FAST_UNLOAD false
 #define DEFAULT_MAX_INVOKS 100
+
+#define CLEANUP_SAFETY_SLEEP_MS 50
 
 #define PR_DEBUG(fmt, ...) pr_debug("%s: " fmt, MODULE_NAME, ##__VA_ARGS__)
 #define PR_DEBUG_PID(fmt, ...) PR_DEBUG("[%d] " fmt, task_pid_nr(current), ##__VA_ARGS__)

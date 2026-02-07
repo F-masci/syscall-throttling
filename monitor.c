@@ -24,6 +24,7 @@
 #include <linux/sched/mm.h>
 #include <linux/mm.h>
 #include <linux/file.h>
+#include <linux/delay.h>
 
 #ifdef _FTRACE_HOOKING
 #include <linux/mutex.h>
@@ -49,11 +50,35 @@ static u64 max_invoks = DEFAULT_MAX_INVOKS;
 static bool fast_unload = DEFAULT_FAST_UNLOAD;
 
 #ifdef _FTRACE_HOOKING
+
 static DEFINE_MUTEX(minvoks_mutex);
 static DEFINE_MUTEX(status_mutex);
+
+// Locking mechanisms
+
+#define MONITOR_DEFINE_FLAGS(x) ;
+
+#define MONITOR_WRITE_LOCK(base_name, flags) mutex_lock(&base_name##_mutex)
+#define MONITOR_WRITE_UNLOCK(base_name, flags) mutex_unlock(&base_name##_mutex)
+
+#define MONITOR_READ_LOCK(base_name, flags) MONITOR_WRITE_LOCK(base_name, flags)
+#define MONITOR_READ_UNLOCK(base_name, flags) MONITOR_WRITE_UNLOCK(base_name, flags)
+
 #elif defined(_DISCOVER_HOOKING)
+
 static DEFINE_RWLOCK(minvoks_lock);
 static DEFINE_RWLOCK(status_lock);
+
+// Locking mechanisms
+
+#define MONITOR_DEFINE_FLAGS(x) unsigned long x
+
+#define MONITOR_WRITE_LOCK(base_name, flags) write_lock_irqsave(&base_name##_lock, flags)
+#define MONITOR_WRITE_UNLOCK(base_name, flags) write_unlock_irqrestore(&base_name##_lock, flags)
+
+#define MONITOR_READ_LOCK(base_name, flags) read_lock_irqsave(&base_name##_lock, flags)
+#define MONITOR_READ_UNLOCK(base_name, flags) read_unlock_irqrestore(&base_name##_lock, flags)
+
 #endif
 static DEFINE_RWLOCK(fast_unload_lock);
 
@@ -101,9 +126,9 @@ void cleanup_monitor(void)
 	synchronize_rcu();
 
 	// Wait for all active threads to exit
-	PR_INFO("Waiting for %d active monitor threads started to exit...\n", atomic_read(&active_threads));
+	PR_INFO("Waiting for %d active monitored threads started to exit...\n", atomic_read(&active_threads));
 	wait_event(unload_wqueue, atomic_read(&active_threads) == 0);
-	PR_INFO("All active monitor threads started to exit...\n");
+	PR_INFO("All active monitored threads started to exit...\n");
 
 	// Wait for exiting threads to exit syscall wrapper
 	// This synchronization is necessary to avoid that threads that
@@ -114,6 +139,12 @@ void cleanup_monitor(void)
 	// inside the syscall wrapper have already exited it
 	PR_DEBUG("Waiting for outcoming threads to exit syscall wrapper\n");
 	synchronize_rcu();
+
+#ifdef _DISCOVER_HOOKING
+	PR_INFO("Safety sleep (%d ms) for discover hooking exit...\n", CLEANUP_SAFETY_SLEEP_MS);
+	msleep(CLEANUP_SAFETY_SLEEP_MS);
+#endif
+
 }
 
 /**
@@ -164,31 +195,20 @@ u64 get_monitor_max_invoks(void)
  */
 int set_monitor_max_invoks(u64 max)
 {
-#ifdef _FTRACE_HOOKING
-#elif defined(_DISCOVER_HOOKING)
-	unsigned long minvoks_flags;
-	unsigned long status_flags;
-#endif
 	bool status;
 	int ret = 0;
+	MONITOR_DEFINE_FLAGS(minvoks_flags);
+	MONITOR_DEFINE_FLAGS(status_flags);
 
 	// Check if the value is changing
 	if (unlikely(max == get_monitor_max_invoks()))
 		return 0;
 
-#ifdef _FTRACE_HOOKING
-	// Write the max_invoks under mutex
-	mutex_lock(&minvoks_mutex);
+	// Write the max_invoks under lock
+	MONITOR_WRITE_LOCK(minvoks, minvoks_flags);
 
 	// Lock status to avoid changes during reset
-	mutex_lock(&status_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	// Write the max_invoks under write lock
-	write_lock_irqsave(&minvoks_lock, minvoks_flags);
-
-	// Lock status to avoid changes during reset
-	write_lock_irqsave(&status_lock, status_flags);
-#endif
+	MONITOR_WRITE_LOCK(status, status_flags);
 
 	status = get_monitor_status();
 
@@ -223,13 +243,8 @@ reset_stats_err:
 
 disable_monitor_err:
 enable_monitor_err:
-#ifdef _FTRACE_HOOKING
-	mutex_unlock(&status_mutex);
-	mutex_unlock(&minvoks_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	write_unlock_irqrestore(&status_lock, status_flags);
-	write_unlock_irqrestore(&minvoks_lock, minvoks_flags);
-#endif
+	MONITOR_WRITE_UNLOCK(minvoks, minvoks_flags);
+	MONITOR_WRITE_UNLOCK(status, status_flags);
 
 	return ret;
 }
@@ -251,26 +266,13 @@ bool get_monitor_status(void)
  */
 static int enable_monitoring(void)
 {
-#ifdef _FTRACE_HOOKING
-#elif defined(_DISCOVER_HOOKING)
-	unsigned long flags;
-#endif
 	int ret;
+	MONITOR_DEFINE_FLAGS(flags);
 
 	// Write the status under write lock
-#ifdef _FTRACE_HOOKING
-	mutex_lock(&status_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	write_lock_irqsave(&status_lock, flags);
-#endif
-
+	MONITOR_WRITE_LOCK(status, flags);
 	ret = __enable_monitoring();
-
-#ifdef _FTRACE_HOOKING
-	mutex_unlock(&status_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	write_unlock_irqrestore(&status_lock, flags);
-#endif
+	MONITOR_WRITE_UNLOCK(status, flags);
 
 	return ret;
 }
@@ -329,26 +331,13 @@ start_timer_err:
  */
 static int disable_monitoring(void)
 {
-#ifdef _FTRACE_HOOKING
-#elif defined(_DISCOVER_HOOKING)
-	unsigned long flags;
-#endif
 	int ret;
+	MONITOR_DEFINE_FLAGS(flags);
 
 	// Write the status under write lock
-#ifdef _FTRACE_HOOKING
-	mutex_lock(&status_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	write_lock_irqsave(&status_lock, flags);
-#endif
-
+	MONITOR_WRITE_LOCK(status, flags);
 	ret = __disable_monitoring();
-
-#ifdef _FTRACE_HOOKING
-	mutex_unlock(&status_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	write_unlock_irqrestore(&status_lock, flags);
-#endif
+	MONITOR_WRITE_UNLOCK(status, flags);
 
 	return ret;
 }
@@ -635,11 +624,14 @@ signal_interrupted:
 invalid_scidx:
 invalid_original_addr:
 
-	// Decrement active threads count and wake up unload wait queue if needed
-	if (atomic_dec_and_test(&active_threads))
-		wake_up(&unload_wqueue);
 	if (unlikely(unloading))
-		PR_INFO_PID("Exiting syscall wrapper, active threads remaining: %d\n", atomic_read(&active_threads));
+		PR_INFO_PID("Exiting syscall wrapper\n");
+
+	// Decrement active threads count and wake up unload wait queue if needed
+	if (unlikely(atomic_dec_and_test(&active_threads)))
+		wake_up(&unload_wqueue);
+	else if (unlikely(unloading))
+		PR_INFO_PID("Active threads remaining: %d\n", atomic_read(&active_threads));
 
 	return ret;
 }
