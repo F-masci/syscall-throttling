@@ -25,3 +25,5 @@ _syst.h
 hook/discover/lib/.*
 
 checkpatch.pl
+spelling.txt
+const_structs.checkpatch

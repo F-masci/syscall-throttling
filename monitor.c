@@ -465,7 +465,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs)
 	s64 delay_ms;
 
 	bool uid_monitored = false, prog_monitored = false;
-	struct file *exe_file = NULL;
+	struct file __rcu *exe_file = NULL;
 	struct inode *exe_inode = NULL;
 
 	bool inc_blocked = false;

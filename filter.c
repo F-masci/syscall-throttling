@@ -374,9 +374,9 @@ uid_monitor_removed:
  * @note The returned file structure has its reference count incremented.
  *	The caller is responsible for calling fput() to release the reference.
  */
-struct file *get_task_exe(struct task_struct *task)
+struct file __rcu *get_task_exe(struct task_struct *task)
 {
-	struct file *exe = NULL;
+	struct file __rcu *exe = NULL;
 
 	// Sanity check
 	if (!task)

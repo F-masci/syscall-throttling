@@ -19,7 +19,11 @@ jobs:
           wget https://raw.githubusercontent.com/torvalds/linux/master/scripts/checkpatch.pl
           chmod +x checkpatch.pl
 
+          wget https://raw.githubusercontent.com/torvalds/linux/master/scripts/spelling.txt
+          wget https://raw.githubusercontent.com/torvalds/linux/master/scripts/const_structs.checkpatch
+
       - name: Run Check
         run: |
+          make setup
           make check
         continue-on-error: true

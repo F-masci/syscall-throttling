@@ -46,7 +46,7 @@ int remove_uid_monitoring(uid_t uid);
 
 /* ---- PROG NAMES MONITORING ---- */
 
-struct file *get_task_exe(struct task_struct *task);
+struct file __rcu *get_task_exe(struct task_struct *task);
 char *get_exe_path(struct file *exe_file);
 
 size_t get_prog_monitor_num(void);
