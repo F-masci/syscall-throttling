@@ -4,6 +4,12 @@ OUT_DIR 	:= $(PWD)/out
 HDISC_DIR 	:= hook/discover
 HFTRACE_DIR := hook/ftrace
 
+# Set to enable DEBUG
+#
+# 1 = Enable DEBUG
+# 0 = Disable DEBUG
+ENABLE_DEBUG := 1
+
 # Set to enable FTRACE hooking method
 #
 # 1 = Enable FTRACE hooking
@@ -14,17 +20,12 @@ ENABLE_FTRACE := 0
 #
 # 1 = Enable LOW MEMORY mode
 # 0 = Disable LOW MEMORY mode (default)
-ENABLE_LOWMEM := 1
+ENABLE_LOWMEM := 0
 
 # Set to SPINLOCK_PROTECTED to use spinlocks as synchronization method
 # Set to RCU_PROTECTED to use RCU as synchronization method (default)
 #
 SYNC_METHOD := RCU_PROTECTED
-
-# DBG_FLAGS := dyndbg=+p
-DBG_FLAGS   :=
-# DBG_DEFINE  := -DDEBUG
-DBG_DEFINE  :=
 
 KDIR := /lib/modules/$(shell uname -r)/build
 
@@ -32,11 +33,23 @@ SIGN_FILE 	:= $(KDIR)/scripts/sign-file
 MOK_PRIV 	:= $(PWD)/keys/MOK.priv
 MOK_DER  	:= $(PWD)/keys/MOK.der
 
+ifeq ($(ENABLE_LOWMEM), 1)
+	SYNC_METHOD 	 := SPINLOCK_PROTECTED
+endif
+
 # --- SEZIONE KBUILD ---
 ifneq ($(KERNELRELEASE),)
 	obj-m := $(MODULE_NAME).o
 	$(MODULE_NAME)-y := main.o ops.o monitor.o timer.o stats.o filter.o dev.o hook.o
-	ccflags-y := -std=gnu11 $(DBG_DEFINE) -D$(SYNC_METHOD)
+	ccflags-y := -std=gnu11 -D$(SYNC_METHOD)
+
+	ifeq ($(ENABLE_DEBUG), 1)
+		ccflags-y 		 += -DDEBUG
+	endif
+
+	ifeq ($(ENABLE_LOWMEM), 1)
+		ccflags-y 		 += -DLOW_MEMORY
+	endif
 
 	ifeq ($(ENABLE_FTRACE), 1)
 		$(MODULE_NAME)-y += $(HFTRACE_DIR)/fhook.o $(HFTRACE_DIR)/probe.o
@@ -44,10 +57,6 @@ ifneq ($(KERNELRELEASE),)
 	else
 		$(MODULE_NAME)-y += $(HDISC_DIR)/dhook.o $(HDISC_DIR)/disc.o $(HDISC_DIR)/sthack.o $(HDISC_DIR)/lib/vtpmo.o
 		ccflags-y 		 += -DDISCOVER_HOOKING -I$(src)/$(HDISC_DIR) -I$(src)/$(HDISC_DIR)/lib
-	endif
-
-	ifeq ($(ENABLE_LOWMEM), 1)
-		ccflags-y 		 += -DLOW_MEMORY
 	endif
 
 # --- SEZIONE USERSPACE ---
@@ -59,6 +68,11 @@ else
 all:
 
 	@echo "=== Compile main module: $(MODULE_NAME) ==="
+	@if [ "$(ENABLE_DEBUG)" -eq "1" ]; then \
+		echo "Using DEBUG mode"; \
+	else \
+		echo "Using RELEASE mode"; \
+	fi
 	@echo "Using synchronization method: $(SYNC_METHOD)"
 	@if [ "$(ENABLE_FTRACE)" -eq "1" ]; then \
 		echo "Using FTRACE hooking method"; \
@@ -188,37 +202,5 @@ format:
 	@# Format all .c and .h files, excluding build/out directories if necessary
 	@find . \( -path ./out -o -path ./_examples -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print | xargs clang-format -i
 	@echo "Code formatted."
-
-vm-test:
-	@echo "=== Start test in Vagrant VM ==="
-	# vagrant up
-
-	@echo "--- Compiling in Vagrant VM ---"
-	vagrant ssh -c "mkdir -p /home/vagrant/test && \
-		sudo cp /home/vagrant/module/* /home/vagrant/test -R && \
-		sudo chown -R vagrant:vagrant /home/vagrant/test && \
-		cd /home/vagrant/test && \
-		echo '--- Loading Module ---' && \
-		sudo make clean && \
-		sudo make ENABLE_FTRACE=1 && \
-		sudo make load && \
-		echo '--- Compiling Client ---' && \
-		cd client && sudo make"
-
-	@echo "--- Setup test in Vagrant VM ---"
-	vagrant ssh -c "cd /home/vagrant/test/client && \
-		echo '--- Setup Client Test ---' && \
-		./setup.sh"
-	
-	@echo "--- Running Test in Vagrant VM ---"
-	vagrant ssh -c "cd /home/vagrant/test/client && \
-		echo '--- Running Client Test ---' && \
-		timeout 40s /home/vagrant/test/client/pause & \
-		timeout 20s /home/vagrant/test/client/test.sh || true && \
-		echo '--- Unloading Module ---' && \
-		cd /home/vagrant/test && \
-		sudo make unload"
-
-	@echo "=== Test in VM completed ==="
 
 endif

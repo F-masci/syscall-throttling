@@ -53,5 +53,7 @@ size_t get_prog_monitor_num(void);
 size_t get_prog_monitor_vals(char **buf, size_t size);
 
 bool is_prog_monitored(unsigned long inode, dev_t device);
-int add_prog_monitoring(const char *path);
-int remove_prog_monitoring(const char *path);
+int add_prog_monitoring_inode(unsigned long inode, dev_t device, const char *path);
+int add_prog_monitoring_path(const char *path);
+int remove_prog_monitoring_inode(unsigned long inode, dev_t device);
+int remove_prog_monitoring_path(const char *path);

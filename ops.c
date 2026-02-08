@@ -32,12 +32,12 @@
  * @brief Check root permissions.
  * @note We can also use capable(CAP_SYS_ADMIN) if needed
  */
-#define REQUIRE_ROOT()										\
-	do {											\
-		if (unlikely(current_euid().val != 0)) {					\
-			PR_ERROR("Permission denied for non-root user\n");			\
-			return -EPERM;								\
-		}										\
+#define REQUIRE_ROOT()                                                     \
+	do {                                                               \
+		if (unlikely(current_euid().val != 0)) {                   \
+			PR_ERROR("Permission denied for non-root user\n"); \
+			return -EPERM;                                     \
+		}                                                          \
 	} while (0)
 
 /**
@@ -177,7 +177,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 	// --- General Status ---
 	__SCNPRINTF("========= DEVICE STATUS =========\n");
-	__SCNPRINTF("Status:		%s\n", status ? "ENABLED" : "DISABLED");
+	__SCNPRINTF("Status:	%s\n", status ? "ENABLED" : "DISABLED");
 	__SCNPRINTF("Fast Unload:	%s\n", fast_unload ? "ENABLED" : "DISABLED");
 	__SCNPRINTF("Max:		%llu invocations/s\n", max_invoks);
 	__SCNPRINTF("Win:		%d secs (%d ms)\n", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
@@ -291,6 +291,9 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	int k_syscall_idx;
 	uid_t k_uid;
 	char *k_progname;
+	unsigned long k_ino;
+	unsigned int k_dev;
+	char k_check_tail;
 
 	// Temporary variables for various IOCTL read operations
 	struct monitor_status_t k_status_info;
@@ -352,7 +355,21 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 			return PTR_ERR(k_progname);
 		}
 		PR_DEBUG("Received command to add prog name %s\n", k_progname);
-		ret = add_prog_monitoring(k_progname);
+
+		// Parsing the program name
+		//
+		// If the format is <inode>:<device>, we add by inode
+		// else we add by path
+		if (sscanf(k_progname, "%lu:%u%c", &k_ino, &k_dev, &k_check_tail) == 2) {
+			// Inode case
+			PR_DEBUG("Adding by direct Inode: %lu, Device: %u\n", k_ino, k_dev);
+			ret = add_prog_monitoring_inode(k_ino, (dev_t)k_dev, NULL);
+		} else {
+			// Path case
+			PR_DEBUG("Adding by Path resolution: %s\n", k_progname);
+			ret = add_prog_monitoring_path(k_progname);
+		}
+
 		if (ret < 0) {
 			PR_ERROR("Failed to add prog name %s for monitoring\n", k_progname);
 			kfree(k_progname);
@@ -614,7 +631,21 @@ alloc_flat_buf_err:
 			return PTR_ERR(k_progname);
 		}
 		PR_DEBUG("Received command to remove prog name %s\n", k_progname);
-		ret = remove_prog_monitoring(k_progname);
+
+		// Parsing the program name
+		//
+		// If the format is <inode>:<device>, we remove by inode
+		// else we remove by path
+		if (sscanf(k_progname, "%lu:%u%c", &k_ino, &k_dev, &k_check_tail) == 2) {
+			// Inode case
+			PR_DEBUG("Removing by direct Inode: %lu, Device: %u\n", k_ino, k_dev);
+			ret = remove_prog_monitoring_inode(k_ino, (dev_t)k_dev);
+		} else {
+			// Path case
+			PR_DEBUG("Removing by Path resolution: %s\n", k_progname);
+			ret = remove_prog_monitoring_path(k_progname);
+		}
+
 		if (ret < 0) {
 			PR_ERROR("Failed to remove prog name %s\n", k_progname);
 			kfree(k_progname);

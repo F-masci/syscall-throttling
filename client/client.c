@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <time.h>
 
 // Include shared definitions
 // Ensure this file contains the updated structs (struct list_query_t, etc.)
@@ -15,7 +16,7 @@
 #include "errs.h"
 
 #define DEFAULT_DEVICE "/dev/sct-monitor"
-#define INITIAL_LIST_CAPACITY 32
+#define INITIAL_LIST_CAPACITY 64
 
 // Enum defining the possible actions to perform
 typedef enum {
@@ -71,7 +72,7 @@ void print_usage(const char *prog_name)
 	printf("Options:\n");
 	printf("  --sys <nr>		Specifies the system call number\n");
 	printf("  --uid <id>		Specifies the User ID\n");
-	printf("  --prog <name>		Specifies the process name\n");
+	printf("  --prog <name|inode>	Specifies the process name OR raw 'inode:device' (e.g., 12345:2050)\n");
 	printf("  --val <num>		Specifies a numeric value (for limit/status/fast-unload)\n");
 	printf("  --dev <path>		Specifies the device path (Default: %s)\n", DEFAULT_DEVICE);
 	printf("  -h, --help		Show this help message\n\n");
@@ -79,7 +80,7 @@ void print_usage(const char *prog_name)
 	printf("Examples:\n");
 	printf("  %s add --sys 59\n", prog_name);
 	printf("  %s limit --val 100\n", prog_name);
-	printf("  %s add --prog mkdir\n", prog_name);
+	printf("  %s add --prog ./pause\n", prog_name);
 	printf("  %s get-list --uid\n", prog_name);
 	printf("  %s fast-unload --val 0\n", prog_name);
 }
@@ -125,7 +126,7 @@ int handle_get_list(int fd, target_type_t type)
 
 	// Check if we need to resize
 	if (query.real_items > query.fetched_items) {
-		printf("[Client] Buffer too small (fetched %zu/%zu). Reallocating...\n", query.fetched_items, query.real_items);
+		printf("Buffer too small (fetched %zu/%zu). Reallocating...\n", query.fetched_items, query.real_items);
 
 		free(query.ptr);
 		query.max_items = query.real_items;
@@ -166,44 +167,58 @@ int main(int argc, char **argv)
 	struct config cfg = { .device_path = DEFAULT_DEVICE, .action = ACTION_NONE, .target_type = TARGET_NONE };
 
 	int opt;
+	bool value_provided = false;
 	int option_index = 0;
 	int oflags = O_RDWR;
 
 	// Long options structure
 	// FIX: Changed optional_argument to required_argument to support space separation (e.g., --prog mkdir)
 	static struct option long_options[] = { { "dev", required_argument, 0, 'd' },
-						{ "sys", required_argument, 0, 's' },
-						{ "uid", required_argument, 0, 'u' },
-						{ "prog", required_argument, 0, 'p' },
+						{ "sys", optional_argument, 0, 's' },
+						{ "uid", optional_argument, 0, 'u' },
+						{ "prog", optional_argument, 0, 'p' },
 						{ "val", required_argument, 0, 'v' },
 						{ "help", no_argument, 0, 'h' },
 						{ 0, 0, 0, 0 } };
 
 	// Parsing command-line arguments
-	// FIX: Removed double colons (::) to enforce required arguments
-	while ((opt = getopt_long(argc, argv, "d:s:u:p:v:h", long_options, &option_index)) != -1) {
+	while ((opt = getopt_long(argc, argv, "d:s::u::p::v:h", long_options, &option_index)) != -1) {
+
+		// Get the actual argument value
+		char *actual_arg = optarg;
+		if (!actual_arg && optind < argc && argv[optind][0] != '-') {
+			actual_arg = argv[optind++];
+		}
+
 		switch (opt) {
 		case 'd':
 			cfg.device_path = optarg;
 			break;
 		case 's':
 			cfg.target_type = TARGET_SYSCALL;
-			if (optarg)
-				cfg.value.syscall_nr = atoi(optarg);
+			if (actual_arg) {
+				cfg.value.syscall_nr = atoi(actual_arg);
+				value_provided = true;
+			}
 			break;
 		case 'u':
 			cfg.target_type = TARGET_UID;
-			if (optarg)
-				cfg.value.uid = (unsigned int)strtoul(optarg, NULL, 10);
+			if (actual_arg) {
+				cfg.value.uid = (unsigned int)strtoul(actual_arg, NULL, 10);
+				value_provided = true;
+			}
 			break;
 		case 'p':
 			cfg.target_type = TARGET_PROG;
-			if (optarg)
-				cfg.value.prog_name = optarg;
+			if (actual_arg) {
+				cfg.value.prog_name = actual_arg;
+				value_provided = true;
+			}
 			break;
 		case 'v':
 			cfg.target_type = TARGET_GENERIC_VAL;
 			cfg.value.limit = strtoul(optarg, NULL, 10);
+			value_provided = true;
 			break;
 		case 'h':
 			print_usage(argv[0]);
@@ -256,7 +271,7 @@ int main(int argc, char **argv)
 	// Validations logic
 	if (cfg.action == ACTION_ADD || cfg.action == ACTION_REMOVE) {
 		// Add/Remove require a specific target AND a value
-		if (cfg.target_type == TARGET_NONE || cfg.target_type == TARGET_GENERIC_VAL) {
+		if (!value_provided || (cfg.target_type != TARGET_SYSCALL && cfg.target_type != TARGET_UID && cfg.target_type != TARGET_PROG)) {
 			fprintf(stderr, "Error: For add/remove you must specify --sys <val>, --uid <val>, or --prog <val>.\n");
 			return INVALID_ARGUMENTS_ERROR;
 		}
@@ -310,15 +325,15 @@ int main(int argc, char **argv)
 		if (cfg.target_type == TARGET_SYSCALL) {
 			req = SCT_IOCTL_ADD_SYSCALL;
 			arg_ptr = &cfg.value.syscall_nr;
-			printf("[Client] Adding syscall: %d\n", cfg.value.syscall_nr);
+			printf("Adding syscall: %d\n", cfg.value.syscall_nr);
 		} else if (cfg.target_type == TARGET_UID) {
 			req = SCT_IOCTL_ADD_UID;
 			arg_ptr = &cfg.value.uid;
-			printf("[Client] Adding UID: %u\n", cfg.value.uid);
+			printf("Adding UID: %u\n", cfg.value.uid);
 		} else if (cfg.target_type == TARGET_PROG) {
 			req = SCT_IOCTL_ADD_PROG;
 			arg_ptr = cfg.value.prog_name;
-			printf("[Client] Adding prog name: %s\n", cfg.value.prog_name);
+			printf("Adding prog name: %s\n", cfg.value.prog_name);
 		}
 		break;
 
@@ -326,53 +341,53 @@ int main(int argc, char **argv)
 		if (cfg.target_type == TARGET_SYSCALL) {
 			req = SCT_IOCTL_DEL_SYSCALL;
 			arg_ptr = &cfg.value.syscall_nr;
-			printf("[Client] Removing syscall: %d\n", cfg.value.syscall_nr);
+			printf("Removing syscall: %d\n", cfg.value.syscall_nr);
 		} else if (cfg.target_type == TARGET_UID) {
 			req = SCT_IOCTL_DEL_UID;
 			arg_ptr = &cfg.value.uid;
-			printf("[Client] Removing UID: %u\n", cfg.value.uid);
+			printf("Removing UID: %u\n", cfg.value.uid);
 		} else if (cfg.target_type == TARGET_PROG) {
 			req = SCT_IOCTL_DEL_PROG;
 			arg_ptr = cfg.value.prog_name;
-			printf("[Client] Removing prog name: %s\n", cfg.value.prog_name);
+			printf("Removing prog name: %s\n", cfg.value.prog_name);
 		}
 		break;
 
 	case ACTION_SET_LIMIT:
 		req = SCT_IOCTL_SET_LIMIT;
 		arg_ptr = &cfg.value.limit;
-		printf("[Client] Setting limit to: %lu\n", cfg.value.limit);
+		printf("Setting limit to: %lu\n", cfg.value.limit);
 		break;
 
 	case ACTION_SET_STATUS:
 		req = SCT_IOCTL_SET_STATUS;
 		arg_ptr = &cfg.value.status;
-		printf("[Client] Setting status to: %s\n", cfg.value.status ? "ON" : "OFF");
+		printf("Setting status to: %s\n", cfg.value.status ? "ON" : "OFF");
 		break;
 
 	case ACTION_SET_FAST_UNLOAD:
 		req = SCT_IOCTL_SET_FAST_UNLOAD;
 		arg_ptr = &cfg.value.status;
-		printf("[Client] Setting fast unload to: %s\n", cfg.value.status ? "ON" : "OFF");
+		printf("Setting fast unload to: %s\n", cfg.value.status ? "ON" : "OFF");
 		break;
 
 	/* --- READ OPERATIONS --- */
 	case ACTION_GET_STATUS:
 		req = SCT_IOCTL_GET_STATUS;
 		arg_ptr = &status_info;
-		printf("[Client] Getting monitor status...\n");
+		printf("Getting monitor status...\n");
 		break;
 
 	case ACTION_GET_STATS:
 		req = SCT_IOCTL_GET_STATS;
 		arg_ptr = &stats_info;
-		printf("[Client] Getting throttling statistics...\n");
+		printf("Getting throttling statistics...\n");
 		break;
 
 	case ACTION_GET_PEAK_DELAY:
 		req = SCT_IOCTL_GET_PEAK_DELAY;
 		arg_ptr = &delay_info;
-		printf("[Client] Getting peak delay information...\n");
+		printf("Getting peak delay information...\n");
 		break;
 
 	case ACTION_GET_LIST:
@@ -424,7 +439,7 @@ int main(int argc, char **argv)
 		break;
 
 	default:
-		printf("[Client] Operation completed successfully.\n");
+		printf("Operation completed successfully.\n");
 		break;
 	}
 

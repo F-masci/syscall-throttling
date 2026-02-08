@@ -29,7 +29,11 @@ static struct device *dnode;
  * @param mode Pointer to the mode to modify
  * @return NULL
  */
+#if KERNEL_VERSION(6, 2, 0) < LINUX_VERSION_CODE
 static char *monitor_devnode(const struct device *dev, umode_t *mode)
+#else
+static char *monitor_devnode(struct device *dev, umode_t *mode)
+#endif
 {
 	if (mode)
 		*mode = 0664;

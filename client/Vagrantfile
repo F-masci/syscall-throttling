@@ -3,15 +3,22 @@
 
 VAGRANTFILE_API_VERSION = "2"
 
+HOSTNAME = "syscall-throttler"
+
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+    # Configure the VM hostname
+    config.vm.hostname = HOSTNAME
+
     # Select Ubuntu Box
     config.vm.box = "generic/ubuntu2204"
 
     # Syncronize folder
-    config.vm.synced_folder ".", "/home/vagrant/module", type: "nfs", nfs_version: 4, nfs_udp: false, mount_options: ["actimeo=1"]
+    config.vm.synced_folder "..", "/home/vagrant/module", type: "nfs", nfs_version: 4, nfs_udp: false, mount_options: ["actimeo=1"]
 
     # Specific config for libvirt provider
     config.vm.provider :libvirt do |libvirt|
+        libvirt.default_prefix = "#{HOSTNAME}_"
         libvirt.memory = 2048
         libvirt.cpus = 2
         libvirt.video_type = "virtio"
@@ -19,9 +26,13 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     # Fallback to VirtualBox provider
     config.vm.provider :virtualbox do |vb|
+        vb.name = HOSTNAME
         vb.memory = "2048"
         vb.cpus = 2
     end
+
+    # Set timezone
+    config.vm.provision "shell", inline: "timedatectl set-timezone Europe/Rome"
 
     # Provisioning script
     config.vm.provision "shell", inline: <<-SHELL

@@ -144,7 +144,6 @@ void cleanup_monitor(void)
 	PR_INFO("Safety sleep (%d ms) for discover hooking exit...\n", CLEANUP_SAFETY_SLEEP_MS);
 	msleep(CLEANUP_SAFETY_SLEEP_MS);
 #endif
-
 }
 
 /**
@@ -527,13 +526,13 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs)
 			if (!prog_path)
 				PR_WARN_PID("Failed to get executable path during monitoring\n");
 
-			PR_DEBUG_PID("-> device: %u\n", exe_inode->i_sb->s_dev);
-			PR_DEBUG_PID("-> inode: %lu\n", exe_inode->i_ino);
 			PR_DEBUG_PID("-> path: %s\n", prog_path ? prog_path : "N/A");
-
 			kfree(prog_path);
 #else
 #endif
+
+			PR_DEBUG_PID("-> device: %u\n", exe_inode->i_sb->s_dev);
+			PR_DEBUG_PID("-> inode: %lu\n", exe_inode->i_ino);
 
 			prog_monitored = is_prog_monitored(exe_inode->i_ino, exe_inode->i_sb->s_dev);
 			PR_DEBUG_PID("-> program monitored: %s\n", prog_monitored ? "YES" : "NO");
@@ -545,7 +544,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs)
 
 	// Get if uid is monitored
 	uid_monitored = is_uid_monitored(current_euid().val);
-	PR_DEBUG_PID("-> uid monitored: %s\n", uid_monitored ? "YES" : "NO");
+	PR_DEBUG_PID("-> euid monitored: %s\n", uid_monitored ? "YES" : "NO");
 
 	PR_DEBUG_PID("-> total invocations: %llu\n", get_curw_invoks());
 

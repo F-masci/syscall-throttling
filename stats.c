@@ -151,7 +151,6 @@ static char *alloc_current_prog_name(void)
 
 static void _get_peak_rcu(struct sysc_delayed_t *out)
 {
-
 	struct peak_wrapper *peak_ptr;
 
 	// Copy data to output buffer
@@ -184,14 +183,12 @@ static bool _update_peak_rcu(s64 delay_ms, int syscall)
 	if (!prog_name)
 		goto rcu_name_alloc_err;
 
-
 	write_lock_irqsave(&peakd_lock, flags);
 
 	// Re-check with lock
 	old_peak = rcu_dereference_protected(peakd_ptr, lockdep_is_held(&peakd_lock));
 
 	if (likely(old_peak && delay_ms > old_peak->data.delay_ms)) {
-
 		// Populate new peak structure
 		new_peak->data.delay_ms = delay_ms;
 		new_peak->data.uid = current_euid().val;
@@ -256,7 +253,6 @@ static int _reset_peak_rcu(void)
 
 static void _get_peak_spinlock(struct sysc_delayed_t *out)
 {
-
 	unsigned long flags;
 
 	// Copy data to output buffer
@@ -342,7 +338,6 @@ static int _reset_peak_spinlock(void)
  */
 void get_peak_delayed_syscall(struct sysc_delayed_t *out)
 {
-
 	// Safety check
 	if (!out)
 		return;
@@ -464,7 +459,6 @@ static void _get_avgw_blocked_rcu(u64 *sum, u64 *count)
 
 static void _get_stats_blocked_rcu(u64 *peak_blocked, u64 *avg_blocked, u64 *windows_num, u64 scale)
 {
-
 	struct stats_wrapper *sptr;
 
 	// Sanitize scale
@@ -582,7 +576,6 @@ static void _get_avgw_blocked_spinlock(u64 *sum, u64 *count)
 
 static void _get_stats_blocked_spinlock(u64 *peak_blocked, u64 *avg_blocked, u64 *windows_num, u64 scale)
 {
-
 	unsigned long flags;
 
 	// Sanitize scale
@@ -612,7 +605,6 @@ static void _get_stats_blocked_spinlock(u64 *peak_blocked, u64 *avg_blocked, u64
 			*avg_blocked = (wstats.sum_blocked_threads * scale) / wstats.total_windows_count;
 	}
 	read_unlock_irqrestore(&stats_lock, flags);
-
 }
 
 static int _reset_stats_blocked_spinlock(void)
@@ -628,18 +620,22 @@ static int _reset_stats_blocked_spinlock(void)
 
 #else
 
-
 #define COMPRES_WSTATS_BLOCKED(curr_blocked) (curr_blocked)
 #define GET_PEAKW_BLOCKED() -1
-#define GET_AVGW_BLOCKED(sum, count) do { *sum = 0; *count = 0; } while (0)
-#define GET_STATS_BLOCKED(peak, avg, wnum, scale) do { \
-	if (wnum) \
-		*wnum = -1; \
-	if (peak) \
-		*peak = -1; \
-	if (avg) \
-		*avg = -1; \
-} while (0)
+#define GET_AVGW_BLOCKED(sum, count) \
+	do {                         \
+		*sum = 0;            \
+		*count = 0;          \
+	} while (0)
+#define GET_STATS_BLOCKED(peak, avg, wnum, scale) \
+	do {                                      \
+		if (wnum)                         \
+			*wnum = -1;               \
+		if (peak)                         \
+			*peak = -1;               \
+		if (avg)                          \
+			*avg = -1;                \
+	} while (0)
 #define RESET_STATS_BLOCKED() (-1)
 
 #endif
@@ -660,7 +656,6 @@ u64 increment_curw_blocked(void)
  */
 u64 compres_wstats_blocked(void)
 {
-
 	u64 curr_blocked;
 
 	// Atomically get and reset the current window blocked count
@@ -668,7 +663,6 @@ u64 compres_wstats_blocked(void)
 
 	// Compress window statistics
 	return COMPRES_WSTATS_BLOCKED(curr_blocked);
-
 }
 
 /**
@@ -710,7 +704,6 @@ u64 get_avgw_blocked(u64 scale)
  */
 void get_stats_blocked(u64 *peak_blocked, u64 *avg_blocked, u64 *windows_num, u64 scale)
 {
-
 	// Early exit if no data requested
 	if (!peak_blocked && !avg_blocked && !windows_num)
 		return;
@@ -724,7 +717,6 @@ void get_stats_blocked(u64 *peak_blocked, u64 *avg_blocked, u64 *windows_num, u6
  */
 int reset_stats_blocked(void)
 {
-
 	// Reset the atomic counters (current window)
 	atomic64_set(&blocked_current_window, 0);
 
