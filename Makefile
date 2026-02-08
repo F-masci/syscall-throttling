@@ -162,7 +162,7 @@ clean:
 check: checkpatch cppcheck sparse
 
 checkpatch:
-	@echo "\n=== Running Checkpatch ==="
+	@echo "=== Running Checkpatch ==="
 	@# If checkpatch.pl is not present, download it
 	@if [ ! -f checkpatch.pl ]; then \
 		echo "Downloading checkpatch.pl..."; \
@@ -182,14 +182,14 @@ checkpatch:
 	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES,LINUX_VERSION_CODE --terse -f $$(find . \( -path ./_examples -o -path ./out -o -path ./client -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
 
 cppcheck:
-	@echo "\n=== Running Cppcheck ==="
+	@echo "=== Running Cppcheck ==="
 	@# --force: analyze all files even if there are errors
 	@# --inline-suppr: allows suppressing errors via comments in the code
 	@# --check-level=exhaustive: enable more thorough checks
 	@cppcheck --enable=warning,performance,portability --force --quiet --inline-suppr --check-level=exhaustive -i _examples . || true
 
 sparse:
-	@echo "\n=== Running Sparse Analysis ==="
+	@echo "=== Running Sparse Analysis ==="
 	@# Clean build files first
 	@$(MAKE) -C $(KDIR) M=$(PWD) clean > /dev/null
 	@# C=1 enables Sparse.

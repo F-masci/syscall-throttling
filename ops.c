@@ -185,10 +185,10 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 	// --- General Status ---
 	__SCNPRINTF("================== DEVICE STATUS ==================\n");
-        __SCNPRINTF("%-32s %s\n", "Status:", status ? "ENABLED" : "DISABLED");
-        __SCNPRINTF("%-32s %s\n", "Fast Unload:", fast_unload ? "ENABLED" : "DISABLED");
-        __SCNPRINTF("%-32s %llu invocations/s\n", "Max:", max_invoks);
-        __SCNPRINTF("%-32s %d secs (%d ms)\n", "Window:", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
+	__SCNPRINTF("%-32s %s\n", "Status:", status ? "ENABLED" : "DISABLED");
+	__SCNPRINTF("%-32s %s\n", "Fast Unload:", fast_unload ? "ENABLED" : "DISABLED");
+	__SCNPRINTF("%-32s %llu invocations/s\n", "Max:", max_invoks);
+	__SCNPRINTF("%-32s %d secs (%d ms)\n", "Window:", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
 
 	// --- Throttling Stats ---
 	__SCNPRINTF("================= THROTTLING INFO =================\n");
@@ -448,8 +448,8 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		k_delay_info.prog_name = k_tmp_buffer;
 		get_peak_delayed_syscall(&k_delay_info);
 
-		if(k_progname)
-			if (copy_to_user(k_progname, k_delay_info.prog_name, strlen(k_delay_info.prog_name) + 1)) {
+		if (k_progname)
+			if (copy_to_user((void __user *)k_progname, k_delay_info.prog_name, strlen(k_delay_info.prog_name) + 1)) {
 				PR_ERROR("Failed to copy peak delay info to user\n");
 				ret = -EFAULT;
 				goto send_peak_err;

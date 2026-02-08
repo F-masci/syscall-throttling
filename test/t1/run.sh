@@ -46,7 +46,7 @@ fi
 cat $DNODE
 
 # Normal execution
-echo "===================== NORMAL ======================"
+echo "====================== NORMAL ======================"
 
 $EXEC "$THREADS" "$DURATION"
 

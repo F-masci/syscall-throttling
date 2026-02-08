@@ -16,12 +16,13 @@
 #define MIN_PRINT_ELAPSED_TIME_NS (MIN_PRINT_ELAPSED_TIME_S * 1000000000LL)
 
 // Global variables
-volatile int stop = 0; // Flag to stop threads
-atomic_long total_calls = 0; // Atomic counter for statistics
+volatile int stop; // Flag to stop threads
+atomic_long total_calls; // Atomic counter for statistics
+
 // Function executed by threads
-void *worker(__attribute__((unused)) void *arg)
+void *worker(void *arg)
 {
-	size_t idx = (size_t) arg;
+	size_t idx = (size_t)arg;
 	long local_calls = 0;
 
 	struct timespec start, end;
@@ -33,16 +34,14 @@ void *worker(__attribute__((unused)) void *arg)
 		clock_gettime(CLOCK_MONOTONIC, &start);
 
 		// Run syscall
-		if (syscall(SYS_getppid) == -1) {
+		if (syscall(SYS_getppid) == -1)
 			perror("syscall failed");
-		}
 
 		// Get end time
 		clock_gettime(CLOCK_MONOTONIC, &end);
 
 		// Calculate elapsed time in nanoseconds
-		elapsed_ns = (end.tv_sec - start.tv_sec) * 1000000000LL + 
-				(end.tv_nsec - start.tv_nsec);
+		elapsed_ns = (end.tv_sec - start.tv_sec) * 1000000000LL + (end.tv_nsec - start.tv_nsec);
 
 		// Print elapsed time
 		if (elapsed_ns > MIN_PRINT_ELAPSED_TIME_NS)
@@ -73,6 +72,7 @@ int main(int argc, char *argv[])
 	fflush(stdout);
 
 	pthread_t *threads = malloc(sizeof(pthread_t) * num_threads);
+
 	if (!threads) {
 		perror("Malloc failed");
 		return 1;
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
 
 	// Create Threads
 	for (size_t i = 0; i < (size_t) num_threads; i++) {
-		if (pthread_create(&threads[i], NULL, worker, (void *) i) != 0) {
+		if (pthread_create(&threads[i], NULL, worker, (void *)i) != 0) {
 			perror("Thread create failed");
 			free(threads);
 			return 1;
@@ -94,9 +94,8 @@ int main(int argc, char *argv[])
 	stop = 1;
 
 	// Wait for threads to finish
-	for (int i = 0; i < num_threads; i++) {
+	for (int i = 0; i < num_threads; i++)
 		pthread_join(threads[i], NULL);
-	}
 
 	printf("Test complete. Total Syscalls invoked: %ld\n", atomic_load(&total_calls));
 

@@ -14,10 +14,10 @@ CLIENT_DIR="$WORK_DIR/client"       # Client directory
 TEST_DIR="$WORK_DIR/test"           # Test directory
 
 # --- Colors ---
-COLOR_HOST='\033[1;32m' # Green
-COLOR_VM='\033[1;33m'   # Yellow (Kept variable name for consistency)
-COLOR_ERR='\033[1;31m'  # Red
-NC='\033[0m'            # Reset
+COLOR_HOST='\033[1;32m'     # Green
+COLOR_SCRIPT='\033[1;36m'   # Cyan
+COLOR_ERR='\033[1;31m'      # Red
+NC='\033[0m'                # Reset
 
 # --- Parsing Arguments ---
 RELOAD_MODULE=false
@@ -44,18 +44,22 @@ fi
 
 # --- Funzioni Helper ---
 
+TAG_WIDTH=8
+
 log_host() {
-    echo -e "${COLOR_HOST}[HOST]${NC} $(date +"%H:%M:%S") - $@"
+    printf "${COLOR_HOST}%-${TAG_WIDTH}s${NC} %s | %s\n" "[HOST]" "$(date +"%H:%M:%S")" "$*"
 }
 
 log_error() {
-    echo -e "${COLOR_ERR}[ERROR]${NC} $(date +"%H:%M:%S") - $@" >&2
+    printf "${COLOR_ERR}%-${TAG_WIDTH}s${NC} %s | %s\n" "[ERROR]" "$(date +"%H:%M:%S")" "$*" >&2
 }
 
-prefix_output() {
-    local prefix="${1:-HOST}"
+prefix_script_output() {
+    local prefix="${1:-SCRIPT}"
+    local tag="[$prefix]"
+    
     while IFS= read -r line; do
-        echo -e "${COLOR_VM}[${prefix}]${NC}   $line"
+        printf "${COLOR_SCRIPT}%-${TAG_WIDTH}s${NC} %s | %s\n" "$tag" "$(date +"%H:%M:%S")" "$line"
     done
 }
 
@@ -63,7 +67,7 @@ run_on_host() {
     local cmd=$1
     local prefix=$2
 
-    bash -c "set -o pipefail; $cmd" 2>&1 | prefix_output "$prefix"
+    bash -c "set -o pipefail; $cmd" 2>&1 | prefix_script_output "$prefix"
     
     local status=${PIPESTATUS[0]} 
     if [ $status -ne 0 ]; then
@@ -105,7 +109,7 @@ HOST_SCRIPT="
     fi
 "
 
-run_on_host "$HOST_SCRIPT" "SETUP"
+run_on_host "$HOST_SCRIPT" "MODULE"
 
 log_host "=== Setup Client ==="
 

@@ -183,7 +183,6 @@ int main(int argc, char **argv)
 
 	// Parsing command-line arguments
 	while ((opt = getopt_long(argc, argv, "d:s::u::p::v:h", long_options, &option_index)) != -1) {
-
 		// Get the actual argument value
 		char *actual_arg = optarg;
 		if (!actual_arg && optind < argc && argv[optind][0] != '-') {

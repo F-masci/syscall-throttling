@@ -1,6 +1,6 @@
 #include <unistd.h>
 
-int main()
+int main(void)
 {
 	pause();
 	return 0;

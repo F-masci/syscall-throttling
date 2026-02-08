@@ -627,7 +627,6 @@ fpath_dpath_err:
 
 fpath_alloc_err:
 		path_put(&path_struct);
-
 	}
 
 fpath_kpath_err:

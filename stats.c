@@ -152,12 +152,12 @@ static char *alloc_current_prog_name(void)
 static void _get_peak_rcu(struct sysc_delayed_t *out)
 {
 	struct peak_wrapper *peak_ptr;
-	char * prog_name_ptr;
+	char *prog_name_ptr;
 
 	// Copy data to output buffer
 	rcu_read_lock();
 	peak_ptr = rcu_dereference(peakd_ptr);
-	if(!peak_ptr)
+	if (!peak_ptr)
 		goto copy_peak_rcu_exit;
 
 	prog_name_ptr = out->prog_name;
@@ -167,7 +167,7 @@ static void _get_peak_rcu(struct sysc_delayed_t *out)
 
 	// Restore program name pointer provided by the caller
 	out->prog_name = prog_name_ptr;
-	if(!out->prog_name) {
+	if (!out->prog_name) {
 		PR_WARN("No buffer allocated for program name provided\n");
 		goto copy_peak_rcu_exit;
 	}
@@ -175,7 +175,7 @@ static void _get_peak_rcu(struct sysc_delayed_t *out)
 	// Copy program name in the buffer
 	if (peak_ptr->data.prog_name)
 		strscpy(out->prog_name, peak_ptr->data.prog_name, PATH_MAX);
-	else 
+	else
 		out->prog_name[0] = '\0';
 
 copy_peak_rcu_exit:
@@ -275,7 +275,7 @@ static int _reset_peak_rcu(void)
 static void _get_peak_spinlock(struct sysc_delayed_t *out)
 {
 	unsigned long flags;
-	char * prog_name_ptr;
+	char *prog_name_ptr;
 
 	// Copy data to output buffer
 	read_lock_irqsave(&peakd_lock, flags);
@@ -284,10 +284,10 @@ static void _get_peak_spinlock(struct sysc_delayed_t *out)
 
 	// Copy data to output buffer
 	memcpy(out, &peak_ds, sizeof(struct sysc_delayed_t));
-	
+
 	// Restore program name pointer provided by the caller
 	out->prog_name = prog_name_ptr;
-	if(!out->prog_name) {
+	if (!out->prog_name) {
 		PR_WARN("No buffer allocated for program name provided\n");
 		goto copy_peak_spinlock_exit;
 	}
