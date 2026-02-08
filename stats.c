@@ -330,9 +330,9 @@ static int _reset_peak_spinlock(void)
 
 #else
 
-#define GET_PEAK_DELAYED_SYSCALL(out) *out = NULL
-#define UPDATE_PEAK_DELAY(delay_ms, syscall) false
-#define RESET_PEAK_DELAY() _reset_peak_rcu() -1
+#define GET_PEAK_DELAYED_SYSCALL(out) (*out = NULL)
+#define UPDATE_PEAK_DELAY(delay_ms, syscall) (false)
+#define RESET_PEAK_DELAY() (-1)
 
 #endif
 
@@ -629,18 +629,18 @@ static int _reset_stats_blocked_spinlock(void)
 #else
 
 
-#define COMPRES_WSTATS_BLOCKED(curr_blocked) curr_blocked;
+#define COMPRES_WSTATS_BLOCKED(curr_blocked) (curr_blocked)
 #define GET_PEAKW_BLOCKED() -1
 #define GET_AVGW_BLOCKED(sum, count) do { *sum = 0; *count = 0; } while (0)
 #define GET_STATS_BLOCKED(peak, avg, wnum, scale) do { \
-	if (windows_num) \
-		*windows_num = -1; \
-	if (peak_blocked) \
-		*peak_blocked = -1; \
-	if (avg_blocked) \
-		*avg_blocked = -1; \
+	if (wnum) \
+		*wnum = -1; \
+	if (peak) \
+		*peak = -1; \
+	if (avg) \
+		*avg = -1; \
 } while (0)
-#define RESET_STATS_BLOCKED() -1
+#define RESET_STATS_BLOCKED() (-1)
 
 #endif
 

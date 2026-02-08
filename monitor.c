@@ -56,7 +56,7 @@ static DEFINE_MUTEX(status_mutex);
 
 // Locking mechanisms
 
-#define MONITOR_DEFINE_FLAGS(x) ;
+#define MONITOR_DEFINE_FLAGS(x)
 
 #define MONITOR_WRITE_LOCK(base_name, flags) mutex_lock(&base_name##_mutex)
 #define MONITOR_WRITE_UNLOCK(base_name, flags) mutex_unlock(&base_name##_mutex)
@@ -465,7 +465,7 @@ asmlinkage long syscall_wrapper(struct pt_regs *regs)
 	s64 delay_ms;
 
 	bool uid_monitored = false, prog_monitored = false;
-	struct file __rcu *exe_file = NULL;
+	struct file *exe_file = NULL;
 	struct inode *exe_inode = NULL;
 
 	bool inc_blocked = false;
