@@ -8,6 +8,7 @@
 #define DEVICE_NAME "sctm"
 #define CLASS_NAME DEVICE_NAME
 #define DNODE_NAME "sct-monitor"
+#define DNODE_MODE 0664
 
 int setup_monitor_device(void);
 void cleanup_monitor_device(void);

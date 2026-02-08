@@ -386,6 +386,11 @@ int main(int argc, char **argv)
 
 	case ACTION_GET_PEAK_DELAY:
 		req = SCT_IOCTL_GET_PEAK_DELAY;
+		delay_info.prog_name = malloc(PATH_MAX);
+		if (!delay_info.prog_name) {
+			fprintf(stderr, "Failed to allocate memory for program name\n");
+			return MEMORY_ALLOCATION_ERROR;
+		}
 		arg_ptr = &delay_info;
 		printf("Getting peak delay information...\n");
 		break;
@@ -393,7 +398,7 @@ int main(int argc, char **argv)
 	case ACTION_GET_LIST:
 		// Special handling because of dynamic allocation
 		close(fd);
-		return handle_get_list(open(cfg.device_path, O_RDWR), cfg.target_type);
+		return handle_get_list(open(cfg.device_path, oflags), cfg.target_type);
 
 	default:
 		break;
@@ -409,33 +414,33 @@ int main(int argc, char **argv)
 	// Post-execution printing for read commands
 	switch (cfg.action) {
 	case ACTION_GET_STATUS:
-		printf("========= MONITOR STATUS =========\n");
-		printf("Enabled:	%s\n", status_info.enabled ? "YES" : "NO");
-		printf("Fast Unload:	%s\n", status_info.fast_unload ? "YES" : "NO");
-		printf("Max Invoks:	%lu\n", status_info.max_invoks);
-		printf("Cur Invoks:	%lu\n", status_info.cur_invoks);
-		printf("Window:		%lu sec\n", status_info.window_sec);
-		printf("==================================\n");
+		printf("================== MONITOR STATUS ==================\n");
+		printf("%-32s %s\n", "Status:", status_info.enabled ? "ENABLED" : "DISABLED");
+		printf("%-32s %s\n", "Fast Unload:", status_info.fast_unload ? "YES" : "NO");
+		printf("%-32s %lu\n", "Max Invoks:", status_info.max_invoks);
+		printf("%-32s %lu\n", "Cur Invoks:", status_info.cur_invoks);
+		printf("%-32s %lu sec\n", "Window:", status_info.window_sec);
+		printf("====================================================\n");
 		break;
 
 	case ACTION_GET_STATS:
-		printf("======== THROTTLING STATS ========\n");
-		printf("Peak Blocked Threads:	%lu\n", stats_info.peak_blocked);
-		printf("Avg Blocked Threads:	%lu.%02lu\n", stats_info.avg_blocked_int, stats_info.avg_blocked_dec);
-		printf("==================================\n");
+		printf("================= THROTTLING STATS =================\n");
+		printf("%-32s %lu\n", "Peak Blocked Threads:", stats_info.peak_blocked);
+		printf("%-32s %lu.%02lu\n", "Avg Blocked Threads:", stats_info.avg_blocked_int, stats_info.avg_blocked_dec);
+		printf("====================================================\n");
 		break;
 
 	case ACTION_GET_PEAK_DELAY:
-		printf("========= PEAK DELAY INFO ========\n");
+		printf("================== PEAK DELAY INFO =================\n");
 		if (delay_info.syscall > -1) {
-			printf("Delay:		%ld ms\n", delay_info.delay_ms);
-			printf("Syscall:	%d\n", delay_info.syscall);
-			printf("UID:		%u\n", delay_info.uid);
-			printf("Program:	%s\n", delay_info.prog_name);
+			printf("%-32s %ld ms\n", "Delay:", delay_info.delay_ms);
+			printf("%-32s %d\n", "Syscall:", delay_info.syscall);
+			printf("%-32s %u\n", "UID:", delay_info.uid);
+			printf("%-32s %s\n", "Program:", delay_info.prog_name ? delay_info.prog_name : "N/A");
 		} else {
 			printf("No delay recorded yet.\n");
 		}
-		printf("==================================\n");
+		printf("====================================================\n");
 		break;
 
 	default:

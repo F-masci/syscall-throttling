@@ -1,5 +1,5 @@
-SRC=client.c
-OUT=client
+SRC=stress_test.c
+OUT=stress_test
 
 CFLAGS=-Wall -Wextra
 

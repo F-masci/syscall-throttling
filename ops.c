@@ -112,12 +112,20 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 	// Get throttling stats
 	get_stats_blocked(&peak_blocked, &avg_blocked, &windows_num, AVG_SCALE);
 
+	// Allocate temporary syscall delayed info
+	memset(&peak_delay, 0, sizeof(struct sysc_delayed_t));
+	peak_delay.prog_name = kzalloc(PATH_MAX, GFP_KERNEL);
+	if (!peak_delay.prog_name) {
+		PR_ERROR("Failed to allocate memory for program name\n");
+		goto alloc_prog_name_err;
+	}
+
 	// Get peak delayed syscall info
 	get_peak_delayed_syscall(&peak_delay);
 
 	// Allocate temporary syscall list
 	syscall_count = get_syscall_monitor_num();
-	syscall_list = kmalloc_array(syscall_count, sizeof(int), GFP_KERNEL);
+	syscall_list = kcalloc(syscall_count, sizeof(int), GFP_KERNEL);
 	if (!syscall_list) {
 		PR_ERROR("Failed to allocate memory for syscall list\n");
 		goto alloc_syscall_list_err;
@@ -127,7 +135,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 	// Allocate temporary UID list
 	uid_count = get_uid_monitor_num();
-	uid_list = kmalloc_array(uid_count, sizeof(uid_t), GFP_KERNEL);
+	uid_list = kcalloc(uid_count, sizeof(uid_t), GFP_KERNEL);
 	if (!uid_list) {
 		PR_ERROR("Failed to allocate memory for UID list\n");
 		goto alloc_uid_list_err;
@@ -137,7 +145,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 
 	// Allocate temporary Prog Name list
 	prog_count = get_prog_monitor_num();
-	prog_list = kmalloc_array(prog_count, sizeof(char *), GFP_KERNEL);
+	prog_list = kcalloc(prog_count, sizeof(char *), GFP_KERNEL);
 	if (!prog_list) {
 		PR_ERROR("Failed to allocate memory for Program Name list\n");
 		goto alloc_prog_list_err;
@@ -176,29 +184,29 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 	ret = 0;
 
 	// --- General Status ---
-	__SCNPRINTF("========= DEVICE STATUS =========\n");
-	__SCNPRINTF("Status:	%s\n", status ? "ENABLED" : "DISABLED");
-	__SCNPRINTF("Fast Unload:	%s\n", fast_unload ? "ENABLED" : "DISABLED");
-	__SCNPRINTF("Max:		%llu invocations/s\n", max_invoks);
-	__SCNPRINTF("Win:		%d secs (%d ms)\n", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
+	__SCNPRINTF("================== DEVICE STATUS ==================\n");
+        __SCNPRINTF("%-32s %s\n", "Status:", status ? "ENABLED" : "DISABLED");
+        __SCNPRINTF("%-32s %s\n", "Fast Unload:", fast_unload ? "ENABLED" : "DISABLED");
+        __SCNPRINTF("%-32s %llu invocations/s\n", "Max:", max_invoks);
+        __SCNPRINTF("%-32s %d secs (%d ms)\n", "Window:", TIMER_INTERVAL_S, TIMER_INTERVAL_MS);
 
 	// --- Throttling Stats ---
-	__SCNPRINTF("======== THROTTLING INFO ========\n");
-	__SCNPRINTF("Current invocations:	%llu\n", cur_invoks);
-	__SCNPRINTF("Peak Blocked Threads:	%llu\n", peak_blocked);
-	__SCNPRINTF("Avg Blocked Threads:	%llu.%02llu\n", avg_blocked / AVG_SCALE, avg_blocked % AVG_SCALE);
-	__SCNPRINTF("Observed Window:	%llu (%llu s)\n", windows_num, windows_num * TIMER_INTERVAL_S);
+	__SCNPRINTF("================= THROTTLING INFO =================\n");
+	__SCNPRINTF("%-32s %llu\n", "Current invocations:", cur_invoks);
+	__SCNPRINTF("%-32s %llu\n", "Peak Blocked Threads:", peak_blocked);
+	__SCNPRINTF("%-32s %llu.%02llu\n", "Avg Blocked Threads:", avg_blocked / AVG_SCALE, avg_blocked % AVG_SCALE);
+	__SCNPRINTF("%-32s %llu (%llu s)\n", "Observed Window:", windows_num, windows_num * TIMER_INTERVAL_S);
 
-	__SCNPRINTF("======== PEAK DELAY INFO ========\n");
+	__SCNPRINTF("================= PEAK DELAY INFO =================\n");
 	if (peak_delay.syscall > -1) {
-		__SCNPRINTF("Delay:	%lld ms\n", peak_delay.delay_ms);
-		__SCNPRINTF("Syscall:	%d\n", peak_delay.syscall);
-		__SCNPRINTF("Program:	%s\n", peak_delay.prog_name ? peak_delay.prog_name : "N/A");
-		__SCNPRINTF("UID:		%d\n", peak_delay.uid);
+		__SCNPRINTF("%-32s %lld ms\n", "Delay:", peak_delay.delay_ms);
+		__SCNPRINTF("%-32s %d\n", "Syscall:", peak_delay.syscall);
+		__SCNPRINTF("%-32s %s\n", "Program:", peak_delay.prog_name ? peak_delay.prog_name : "N/A");
+		__SCNPRINTF("%-32s %d\n", "UID:", peak_delay.uid);
 	} else {
 		__SCNPRINTF("No delayed syscalls recorded yet.\n");
 	}
-	__SCNPRINTF("=================================\n");
+	__SCNPRINTF("===================================================\n");
 
 	// --- Syscalls ---
 	__SCNPRINTF("Registered Syscalls:\n");
@@ -215,7 +223,7 @@ static long monitor_read(struct file *file, char __user *buf, size_t count, loff
 	for (j = 0; j < prog_count; j++)
 		__SCNPRINTF("  - [%lu] %s\n", j, prog_list[j]);
 
-	__SCNPRINTF("=================================\n");
+	__SCNPRINTF("===================================================\n");
 
 	/* ---- SEND TO USER ---- */
 
@@ -268,6 +276,10 @@ alloc_uid_list_err:
 	PR_DEBUG("Freed syscall list\n");
 
 alloc_syscall_list_err:
+	kfree(peak_delay.prog_name);
+	PR_DEBUG("Freed program name buffer\n");
+
+alloc_prog_name_err:
 
 	// Return the number of bytes read or error code
 	return ret;
@@ -304,6 +316,7 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	// Temporary variables for various IOCTL configuration operations
 	u64 k_max_invoks;
 	bool k_status;
+	char *k_tmp_buffer;
 
 	// Temporary lists for fetching monitored items
 	int *tmp_syscall_list = NULL;
@@ -411,12 +424,49 @@ static long monitor_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 		break;
 
 	case SCT_IOCTL_GET_PEAK_DELAY:
-		PR_DEBUG("Received command to get peak delay info\n");
-		get_peak_delayed_syscall(&k_delay_info);
-		if (copy_to_user((void __user *)arg, &k_delay_info, sizeof(k_delay_info))) {
-			PR_ERROR("Failed to copy peak delay info to user\n");
+		// The user provides a struct sysc_delayed_t struct with:
+		// - ptr: pointer to user buffer to fill with prog names
+		// The kernel fills the buffer and updates the struct
+		if (copy_from_user(&k_delay_info, (void __user *)arg, sizeof(k_delay_info))) {
+			PR_ERROR("Failed to copy delay info from user\n");
 			return -EFAULT;
 		}
+		PR_DEBUG("Received command to get peak delay info\n");
+
+		// Save user buffer pointer for program name
+		k_progname = k_delay_info.prog_name;
+
+		// Allocate temporary syscall delayed info
+		k_tmp_buffer = kzalloc(PATH_MAX, GFP_KERNEL);
+		if (!k_tmp_buffer) {
+			PR_ERROR("Failed to allocate memory for program name\n");
+			return -ENOMEM;
+		}
+
+		// Get peak delayed syscall info
+		memset(&k_delay_info, 0, sizeof(struct sysc_delayed_t));
+		k_delay_info.prog_name = k_tmp_buffer;
+		get_peak_delayed_syscall(&k_delay_info);
+
+		if(k_progname)
+			if (copy_to_user(k_progname, k_delay_info.prog_name, strlen(k_delay_info.prog_name) + 1)) {
+				PR_ERROR("Failed to copy peak delay info to user\n");
+				ret = -EFAULT;
+				goto send_peak_err;
+			}
+
+		// Set user buffer pointer for program name
+		k_delay_info.prog_name = k_progname;
+
+		if (copy_to_user((void __user *)arg, &k_delay_info, sizeof(k_delay_info))) {
+			PR_ERROR("Failed to copy peak delay info to user\n");
+			ret = -EFAULT;
+			goto send_peak_err;
+		}
+
+send_peak_err:
+		kfree(k_tmp_buffer);
+
 		break;
 
 	case SCT_IOCTL_GET_SYSCALL_LIST:

@@ -36,7 +36,7 @@ static char *monitor_devnode(struct device *dev, umode_t *mode)
 #endif
 {
 	if (mode)
-		*mode = 0664;
+		*mode = DNODE_MODE;
 
 	return NULL;
 }
