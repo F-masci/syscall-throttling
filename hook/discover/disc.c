@@ -192,7 +192,7 @@ int setup_discover_hook(void)
 	PR_DEBUG("Syscall table found\n");
 
 	// Save original syscall addresses
-	original_syscall_addrs = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(unsigned long), GFP_KERNEL);
+	original_syscall_addrs = kcalloc(SYSCALL_TABLE_SIZE, sizeof(unsigned long), GFP_KERNEL);
 	if (!original_syscall_addrs) {
 		PR_ERROR("Cannot allocate memory for saving original syscall addresses\n");
 		return -ENOMEM;
@@ -204,6 +204,7 @@ int setup_discover_hook(void)
 	ret = register_kprobe(&kp_x64_sys_call);
 	if (ret < 0) {
 		PR_ERROR("Cannot register kprobe for x64_sys_call\n");
+		kfree(original_syscall_addrs);
 		return ret;
 	}
 	PR_DEBUG("Kprobe for x64_sys_call registered\n");

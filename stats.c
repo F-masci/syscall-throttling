@@ -35,7 +35,7 @@ static struct stats_wrapper __rcu *stats_ptr;
 
 #elif defined _SPINLOCK_PROTECTED
 
-static struct sysc_delayed_t peak_ds = { 0 };
+static struct sysc_delayed_t peak_ds = { -1, 0, 0, NULL };
 static struct wstats_t wstats = { 0, 0, 0 };
 
 #endif

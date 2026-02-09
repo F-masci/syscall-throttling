@@ -19,18 +19,46 @@
 #include "filter.h"
 
 #ifdef _FTRACE_HOOKING
+
 #include <linux/mutex.h>
+
+#define HOOK_METHOD_NAME "ftrace"
+
+static DEFINE_MUTEX(hook_mutex);
+#define HOOK_DEFINE_FLAGS(x)
+
+#define HOOK_LOCK(base_name, flags) mutex_lock(&base_name##_mutex)
+#define HOOK_UNLOCK(base_name, flags) mutex_unlock(&base_name##_mutex)
+
+#define SETUP_HOOK() setup_ftrace_hook()
+#define INIT_SYSCALL_HOOK(hook) init_syscall_fhook(hook)
+#define CLEANUP_HOOK() cleanup_ftrace_hook()
+
+#define INSTALL_SYSCALL_HOOK(hook) install_syscall_fhook(hook)
+#define UNINSTALL_SYSCALL_HOOK(hook) uninstall_syscall_fhook(hook)
+
 #elif defined(_DISCOVER_HOOKING)
+
+#define HOOK_METHOD_NAME "discover"
+
+static DEFINE_SPINLOCK(hook_lock);
+#define HOOK_DEFINE_FLAGS(x) unsigned long x
+
+#define HOOK_LOCK(base_name, flags) spin_lock_irqsave(&base_name##_lock, flags)
+#define HOOK_UNLOCK(base_name, flags) spin_unlock_irqrestore(&base_name##_lock, flags)
+
+#define SETUP_HOOK() setup_discover_hook()
+#define INIT_SYSCALL_HOOK(hook) init_syscall_dhook(hook)
+#define CLEANUP_HOOK() cleanup_discover_hook()
+
+#define INSTALL_SYSCALL_HOOK(hook) install_syscall_dhook(hook)
+#define UNINSTALL_SYSCALL_HOOK(hook) uninstall_syscall_dhook(hook)
+
+#else
 #endif
 
 static struct hook_syscall_t *syscall_hooks;
 static size_t syscall_hooks_num;
-
-#ifdef _FTRACE_HOOKING
-static DEFINE_MUTEX(hook_mutex);
-#elif defined(_DISCOVER_HOOKING)
-static DEFINE_SPINLOCK(hook_lock);
-#endif
 
 static inline int scidx_sanity_check(int idx)
 {
@@ -53,29 +81,23 @@ int setup_syscall_hooks(size_t num_syscalls)
 	struct hook_syscall_t *hook;
 
 	// Allocate syscall hooks data structure
-	syscall_hooks = kmalloc_array(num_syscalls, sizeof(struct hook_syscall_t), GFP_KERNEL);
+	syscall_hooks = kcalloc(num_syscalls, sizeof(struct hook_syscall_t), GFP_KERNEL);
 	if (!syscall_hooks) {
 		PR_ERROR("Cannot allocate memory for syscall hooks\n");
 		ret = -ENOMEM;
 		goto hooks_alloc_err;
 	}
-	memset(syscall_hooks, 0, num_syscalls * sizeof(struct hook_syscall_t));
 	PR_DEBUG("Syscall hooks data structure allocated\n");
 
 	// Setup hooking method
-#ifdef _FTRACE_HOOKING
-	PR_INFO("Setting up ftrace hooking mode...\n");
-	// Setup ftrace hooking
-#elif defined(_DISCOVER_HOOKING)
-	PR_INFO("Setting up discover hooking mode...\n");
+	PR_INFO("Setting up %s hooking mode...\n", HOOK_METHOD_NAME);
 
-	// Setup discover hooking
-	ret = setup_discover_hook();
+	// Setup hooking
+	ret = SETUP_HOOK();
 	if (ret < 0) {
-		PR_ERROR("Failed to set up discover hooking mode\n");
-		goto dhook_setup_err;
+		PR_ERROR("Failed to set up %s hooking mode\n", HOOK_METHOD_NAME);
+		goto hook_setup_err;
 	}
-#endif
 
 	// Init discover hooking structures
 	// Fill hook structures for each syscall
@@ -84,27 +106,15 @@ int setup_syscall_hooks(size_t num_syscalls)
 		hook = &syscall_hooks[idx];
 		hook->syscall_idx = idx;
 		hook->hook_addr = (unsigned long)syscall_wrapper;
-#ifdef _FTRACE_HOOKING
-		ret = init_syscall_fhook(hook);
-#elif defined(_DISCOVER_HOOKING)
-		ret = init_syscall_dhook(hook);
-#endif
+		ret = INIT_SYSCALL_HOOK(hook);
 
 		if (ret < 0) {
-#ifdef _FTRACE_HOOKING
-			PR_ERROR("Failed to set up ftrace hook structure for syscall %d\n", idx);
-#elif defined(_DISCOVER_HOOKING)
-			PR_ERROR("Failed to set up discover hook structure for syscall %d\n", idx);
-#endif
+			PR_ERROR("Failed to set up %s hook structure for syscall %d\n", HOOK_METHOD_NAME, idx);
 			goto init_structs_err;
 		}
 	}
 
-#ifdef _FTRACE_HOOKING
-	PR_INFO("Ftrace hooking mode setup completed\n");
-#elif defined(_DISCOVER_HOOKING)
-	PR_INFO("Discover hooking mode setup completed\n");
-#endif
+	PR_INFO("%s hooking mode setup completed\n", HOOK_METHOD_NAME);
 
 	syscall_hooks_num = num_syscalls;
 
@@ -115,10 +125,9 @@ int setup_syscall_hooks(size_t num_syscalls)
 	return ret;
 
 init_structs_err:
-#ifdef _FTRACE_HOOKING
-#elif defined(_DISCOVER_HOOKING)
-dhook_setup_err:
-#endif
+	CLEANUP_HOOK();
+
+hook_setup_err:
 	kfree(syscall_hooks);
 
 hooks_alloc_err:
@@ -141,13 +150,8 @@ void cleanup_syscall_hooks(void)
 	PR_DEBUG("Syscall hooks data structure freed\n");
 
 	// Cleanup hooking method
-#ifdef _FTRACE_HOOKING
-	cleanup_ftrace_hook();
-	PR_DEBUG("Ftrace hooking mode cleaned up\n");
-#elif defined(_DISCOVER_HOOKING)
-	cleanup_discover_hook();
-	PR_DEBUG("Discover hooking mode cleaned up\n");
-#endif
+	CLEANUP_HOOK();
+	PR_DEBUG("%s hooking mode cleaned up\n", HOOK_METHOD_NAME);
 }
 
 /**
@@ -158,12 +162,9 @@ void cleanup_syscall_hooks(void)
  */
 int install_syscall_hook(int syscall_idx)
 {
-#ifdef _FTRACE_HOOKING
-#elif defined(_DISCOVER_HOOKING)
-	unsigned long flags;
-#endif
 	struct hook_syscall_t *hook;
 	int ret = 0;
+	HOOK_DEFINE_FLAGS(flags);
 
 	// Sanity check syscall index
 	syscall_idx = scidx_sanity_check(syscall_idx);
@@ -178,11 +179,7 @@ int install_syscall_hook(int syscall_idx)
 		return 0;
 	}
 
-#ifdef _FTRACE_HOOKING
-	mutex_lock(&hook_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	spin_lock_irqsave(&hook_lock, flags);
-#endif
+	HOOK_LOCK(hook, flags);
 
 	// Check if already hooked
 	hook = &syscall_hooks[syscall_idx];
@@ -192,20 +189,11 @@ int install_syscall_hook(int syscall_idx)
 	}
 
 	// Install syscall hook
-#ifdef _FTRACE_HOOKING
-	PR_DEBUG("Installing ftrace hook on syscall %d\n", syscall_idx);
-	ret = install_syscall_fhook(hook);
-#elif defined(_DISCOVER_HOOKING)
-	PR_DEBUG("Installing discover hook on syscall %d\n", syscall_idx);
-	ret = install_syscall_dhook(hook);
-#endif
+	PR_DEBUG("Installing %s hook on syscall %d\n", HOOK_METHOD_NAME, syscall_idx);
+	ret = INSTALL_SYSCALL_HOOK(hook);
 
 	if (ret < 0) {
-#ifdef _FTRACE_HOOKING
-		PR_ERROR("Failed to install ftrace hook on syscall %d\n", syscall_idx);
-#elif defined(_DISCOVER_HOOKING)
-		PR_ERROR("Failed to install discover hook on syscall %d\n", syscall_idx);
-#endif
+		PR_ERROR("Failed to install %s hook on syscall %d\n", HOOK_METHOD_NAME, syscall_idx);
 		goto installation_hook_err;
 	}
 
@@ -214,11 +202,7 @@ int install_syscall_hook(int syscall_idx)
 installation_hook_err:
 installed_hook:
 
-#ifdef _FTRACE_HOOKING
-	mutex_unlock(&hook_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	spin_unlock_irqrestore(&hook_lock, flags);
-#endif
+	HOOK_UNLOCK(hook, flags);
 
 	return ret;
 }
@@ -235,7 +219,7 @@ int install_monitored_syscalls_hooks(void)
 	int ret = 0;
 
 	// Get monitored syscalls
-	syscall_list = kmalloc_array(SYSCALL_TABLE_SIZE, sizeof(int), GFP_KERNEL);
+	syscall_list = kcalloc(SYSCALL_TABLE_SIZE, sizeof(int), GFP_KERNEL);
 	if (!syscall_list) {
 		PR_ERROR("Failed to allocate memory for syscall list\n");
 		return -ENOMEM;
@@ -296,23 +280,16 @@ unsigned long get_original_syscall_address(int syscall_idx)
  */
 int uninstall_syscall_hook(int syscall_idx)
 {
-#ifdef _FTRACE_HOOKING
-#elif defined(_DISCOVER_HOOKING)
-	unsigned long flags;
-#endif
 	struct hook_syscall_t *hook;
 	int ret = 0;
+	HOOK_DEFINE_FLAGS(flags);
 
 	// Sanity check syscall index
 	syscall_idx = scidx_sanity_check(syscall_idx);
 	if (syscall_idx < 0)
 		return -EINVAL;
 
-#ifdef _FTRACE_HOOKING
-	mutex_lock(&hook_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	spin_lock_irqsave(&hook_lock, flags);
-#endif
+	HOOK_LOCK(hook, flags);
 
 	// Check if hook is active
 	hook = &syscall_hooks[syscall_idx];
@@ -322,21 +299,12 @@ int uninstall_syscall_hook(int syscall_idx)
 	}
 
 	// Uninstall syscall hook
-#ifdef _FTRACE_HOOKING
-	PR_DEBUG("Uninstalling ftrace hook on syscall %d\n", syscall_idx);
-	ret = uninstall_syscall_fhook(hook);
+	PR_DEBUG("Uninstalling %s hook on syscall %d\n", HOOK_METHOD_NAME, syscall_idx);
+	ret = UNINSTALL_SYSCALL_HOOK(hook);
 	if (ret < 0) {
-		PR_ERROR("Failed to uninstall ftrace hook on syscall %d\n", syscall_idx);
+		PR_ERROR("Failed to uninstall %s hook on syscall %d\n", HOOK_METHOD_NAME, syscall_idx);
 		goto uninstallation_hook_err;
 	}
-#elif defined(_DISCOVER_HOOKING)
-	PR_DEBUG("Uninstalling discover hook on syscall %d\n", syscall_idx);
-	ret = uninstall_syscall_dhook(hook);
-	if (ret < 0) {
-		PR_ERROR("Failed to uninstall discover hook on syscall %d\n", syscall_idx);
-		goto uninstallation_hook_err;
-	}
-#endif
 
 	hook->active = false;
 
@@ -348,11 +316,7 @@ int uninstall_syscall_hook(int syscall_idx)
 uninstallation_hook_err:
 uninstalled_hook:
 
-#ifdef _FTRACE_HOOKING
-	mutex_unlock(&hook_mutex);
-#elif defined(_DISCOVER_HOOKING)
-	spin_unlock_irqrestore(&hook_lock, flags);
-#endif
+	HOOK_UNLOCK(hook, flags);
 
 	return ret;
 }

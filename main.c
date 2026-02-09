@@ -144,9 +144,10 @@ static void __exit sct_exit(void)
 	/**
 	 * The correct cleanup order is:
 	 * - device
-	 * - hooks
+	 * - active hooks
 	 * - timer
 	 * - monitor
+	 * - structures hooks
 	 * - filter
 	 * - stats
 	 */
@@ -157,10 +158,11 @@ static void __exit sct_exit(void)
 	cleanup_monitor_device();
 	PR_INFO("Device removed successfully\n");
 
-	/* ---- HOOKS ---- */
+	/* ---- ACTIVE HOOKS ---- */
 
-	cleanup_syscall_hooks();
-	PR_INFO("Syscall hooks cleaned up successfully\n");
+	if (uninstall_active_syscalls_hooks() < 0)
+		PR_ERROR("Failed to uninstall active syscall hooks during cleanup\n");
+	PR_INFO("Active syscall hooks uninstalled successfully\n");
 
 	/* ---- TIMER ---- */
 
@@ -172,6 +174,11 @@ static void __exit sct_exit(void)
 
 	cleanup_monitor();
 	PR_INFO("Monitor structures cleaned up successfully\n");
+
+	/* ---- STRUCTURE HOOKS ---- */
+
+	cleanup_syscall_hooks();
+	PR_INFO("Syscall hooks cleaned up successfully\n");
 
 	/* ---- FILTER ---- */
 

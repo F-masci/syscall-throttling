@@ -70,18 +70,30 @@ setup_monitoring 1 0
 echo "==================== ENABLED ======================"
 
 timeout --preserve-status $TIMEOUT $PAUSE &
-PID_TIMEOUT=$!
+PID_PAUSE_TIMEOUT=$!
 
 sleep 0.1
-PID_REAL=$(pgrep -P $PID_TIMEOUT -n)
-echo "Wrapper PID: $PID_TIMEOUT | Real Process PID: $PID_REAL"
+PID_PAUSE_REAL=$(pgrep -P $PID_PAUSE_TIMEOUT -n)
+echo "Pause timeout PID: $PID_PAUSE_TIMEOUT"
+echo "Pause PID: $PID_PAUSE_REAL"
 
 sleep 1
 
 echo "Unloading module..."
-sudo make unload -f ../../Makefile
+sudo make unload -f ../../Makefile &
+PID_UNLOAD_TIMEOUT=$!
 
-wait $PID_TIMEOUT
+sleep 0.1
+PID_UNLOAD_REAL=$(pgrep -P $PID_UNLOAD_TIMEOUT -n)
+echo "Unload timeout PID: $PID_UNLOAD_TIMEOUT"
+echo "Unload PID: $PID_UNLOAD_REAL"
+
+sleep 1
+
+timeout --preserve-status 3 $PAUSE
+
+wait $PID_PAUSE_TIMEOUT
+wait $PID_UNLOAD_TIMEOUT
 
 RET=$?
 if [ $RET -eq 124 ]; then
@@ -103,18 +115,30 @@ setup_monitoring 0 0
 echo "=================== DISABLED ======================="
 
 timeout --preserve-status $TIMEOUT $PAUSE &
-PID_TIMEOUT=$!
+PID_PAUSE_TIMEOUT=$!
 
 sleep 0.1
-PID_REAL=$(pgrep -P $PID_TIMEOUT -n)
-echo "Wrapper PID: $PID_TIMEOUT | Real Process PID: $PID_REAL"
+PID_PAUSE_REAL=$(pgrep -P $PID_PAUSE_TIMEOUT -n)
+echo "Pause timeout PID: $PID_PAUSE_TIMEOUT"
+echo "Pause PID: $PID_PAUSE_REAL"
 
 sleep 1
 
 echo "Unloading module..."
-sudo make unload -f ../../Makefile
+sudo make unload -f ../../Makefile &
+PID_UNLOAD_TIMEOUT=$!
 
-wait $PID_TIMEOUT
+sleep 0.1
+PID_UNLOAD_REAL=$(pgrep -P $PID_UNLOAD_TIMEOUT -n)
+echo "Unload timeout PID: $PID_UNLOAD_TIMEOUT"
+echo "Unload PID: $PID_UNLOAD_REAL"
+
+sleep 1
+
+timeout --preserve-status 3 $PAUSE
+
+wait $PID_PAUSE_TIMEOUT
+wait $PID_UNLOAD_TIMEOUT
 
 RET=$?
 if [ $RET -eq 124 ]; then

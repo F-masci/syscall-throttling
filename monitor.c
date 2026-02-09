@@ -242,8 +242,8 @@ reset_stats_err:
 
 disable_monitor_err:
 enable_monitor_err:
-	MONITOR_WRITE_UNLOCK(minvoks, minvoks_flags);
 	MONITOR_WRITE_UNLOCK(status, status_flags);
+	MONITOR_WRITE_UNLOCK(minvoks, minvoks_flags);
 
 	return ret;
 }
