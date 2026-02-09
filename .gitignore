@@ -18,8 +18,12 @@ keys/
 _*
 
 client/client
-test/t1/pause
 test/t1/stress_test
+test/t2/mon_prog_test
+test/t2/mon_euid_test
+test/t2/unmon_prog_test
+test/t2/unmon_euid_test
+test/t3/pause
 _syst.h
 
 !hook/discover/lib/*

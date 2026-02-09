@@ -8,7 +8,7 @@ HFTRACE_DIR := hook/ftrace
 #
 # 1 = Enable DEBUG
 # 0 = Disable DEBUG
-ENABLE_DEBUG := 1
+ENABLE_DEBUG := 0
 
 # Set to enable FTRACE hooking method
 #
@@ -20,7 +20,7 @@ ENABLE_FTRACE := 0
 #
 # 1 = Enable LOW MEMORY mode
 # 0 = Disable LOW MEMORY mode (default)
-ENABLE_LOWMEM := 0
+ENABLE_LOWMEM := 1
 
 # Set to SPINLOCK_PROTECTED to use spinlocks as synchronization method
 # Set to RCU_PROTECTED to use RCU as synchronization method (default)

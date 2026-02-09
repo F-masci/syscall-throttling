@@ -106,8 +106,11 @@ VM_SCRIPT="
             sudo make unload || exit 1
         fi
 
-        echo '>>> Compiling module...'
-        sudo make ENABLE_FTRACE=1 || exit 1
+        # Check if compilation is needed
+        if [ ! -f "$VM_WORK_DIR/$MODULE_NAME.ko" ]; then
+            echo '>>> Compiling module...'
+            sudo make ENABLE_FTRACE=1 || exit 1
+        fi
 
         echo '>>> Loading module...'
         sudo make load || exit 1
