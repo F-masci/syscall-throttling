@@ -28,6 +28,7 @@ _syst.h
 
 !hook/discover/lib/*
 hook/discover/lib/.*
+hook/discover/lib/vtpmo.o
 
 checkpatch.pl
 spelling.txt
