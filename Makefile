@@ -179,7 +179,7 @@ checkpatch:
 		wget -q https://raw.githubusercontent.com/torvalds/linux/master/scripts/const_structs.checkpatch; \
 	fi
 	@# Run checkpatch on all .c and .h files
-	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES,LINUX_VERSION_CODE --terse -f $$(find . \( -path ./_examples -o -path ./out -o -path ./client -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
+	@./checkpatch.pl --no-tree --ignore=SPDX_LICENSE_TAG,FILE_PATH_CHANGES,LINUX_VERSION_CODE --terse -f $$(find . \( -path ./_examples -o -path ./out -o -path ./client -o -path ./test -o -path ./hook/discover/lib \) -prune -o \( -name "*.c" -o -name "*.h" \) -print) || true
 
 cppcheck:
 	@echo "=== Running Cppcheck ==="

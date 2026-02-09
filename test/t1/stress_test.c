@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
 	}
 
 	// Create Threads
-	for (size_t i = 0; i < (size_t) num_threads; i++) {
+	for (size_t i = 0; i < (size_t)num_threads; i++) {
 		if (pthread_create(&threads[i], NULL, worker, (void *)i) != 0) {
 			perror("Thread create failed");
 			free(threads);

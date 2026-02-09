@@ -7,14 +7,14 @@
 #include <errno.h>
 #include <signal.h>
 
-void sigterm_handler(__attribute__((unused)) int signum) {
+void sigterm_handler(__attribute__((unused)) int signum)
+{
 	printf("Received SIGTERM\n");
 	fflush(stdout);
 }
 
 int main(void)
 {
-
 	struct timespec start, end;
 	long long elapsed_ns;
 
@@ -40,6 +40,6 @@ int main(void)
 	// Print elapsed time
 	printf("Pause time: %.3f s (%lld ns)\n", elapsed_ns / 1000000000.0, elapsed_ns);
 	fflush(stdout);
-	
+
 	return 0;
 }
