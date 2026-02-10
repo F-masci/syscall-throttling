@@ -112,7 +112,16 @@ void cleanup_monitor_stats(void)
 	if (_stats_ptr)
 		kfree_rcu(_stats_ptr, rcu);
 	RCU_INIT_POINTER(stats_ptr, NULL);
+
+	// Wait for all RCU callbacks to complete before returning, to ensure all memory is freed
+	rcu_barrier();
+
 #else
+
+	// Cleanup peak delayed name
+	if (peak_ds.prog_name)
+		kfree(peak_ds.prog_name);
+
 #endif
 }
 

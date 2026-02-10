@@ -96,6 +96,10 @@ void cleanup_monitor_filter(void)
 		atomic64_dec(&prog_count);
 	}
 	PR_DEBUG("Cleared program names monitoring hash table\n");
+
+	// Wait for all RCU callbacks to complete before returning, to ensure all memory is freed
+	rcu_barrier();
+
 }
 
 /* ---- SYS CALL MONITORING ---- */

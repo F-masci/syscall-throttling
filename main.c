@@ -162,7 +162,8 @@ static void __exit sct_exit(void)
 
 	if (uninstall_active_syscalls_hooks() < 0)
 		PR_ERROR("Failed to uninstall active syscall hooks during cleanup\n");
-	PR_INFO("Active syscall hooks uninstalled successfully\n");
+	else
+		PR_INFO("Active syscall hooks uninstalled successfully\n");
 
 	/* ---- TIMER ---- */
 
