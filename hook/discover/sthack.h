@@ -6,3 +6,5 @@
 
 void begin_syscall_table_hack(void);
 void end_syscall_table_hack(void);
+
+void set_memory_executable(unsigned long addr, int numpages);
