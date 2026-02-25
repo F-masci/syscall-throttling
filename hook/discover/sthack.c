@@ -113,28 +113,28 @@ void end_syscall_table_hack(void)
 
 /**
  * @brief Set memory permissions to allow execution by clearing the NX bit in the page table entries for the given address range
- * 
+ *
  * @param addr Starting address of the memory region (must be page-aligned)
  * @param numpages Number of pages in the memory region
  */
-void set_memory_executable(unsigned long addr, int numpages) {
-    unsigned int level;
-    pte_t *pte;
-    int i;
+void set_memory_executable(unsigned long addr, int numpages)
+{
+	unsigned int level;
+	pte_t *pte;
+	int i;
 
-    for (i = 0; i < numpages; i++) {
-        unsigned long curr_addr = addr + (i * PAGE_SIZE);
-        
-        // Find the page table entry for the current address
-        pte = lookup_address(curr_addr, &level);
-        if (!pte) {
-            continue;
-        }
+	for (i = 0; i < numpages; i++) {
+		unsigned long curr_addr = addr + (i * PAGE_SIZE);
 
-        // Remove bit _PAGE_NX (No-Execute)
-        set_pte(pte, __pte(pte_val(*pte) & ~_PAGE_NX));        
-    }
+		// Find the page table entry for the current address
+		pte = lookup_address(curr_addr, &level);
+		if (!pte)
+			continue;
 
-    // Flush TLB to ensure changes take effect
-    __flush_tlb_all();
+		// Remove bit _PAGE_NX (No-Execute)
+		set_pte(pte, __pte(pte_val(*pte) & ~_PAGE_NX));
+	}
+
+	// Flush TLB to ensure changes take effect
+	__flush_tlb_all();
 }
